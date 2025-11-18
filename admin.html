@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Hexagonal Chess Board — Admin</title>
+  <style>
+    body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial; margin: 0; display: flex; min-height: 100vh; }
+    #sidebar { width: 320px; padding: 20px; box-sizing: border-box; background:#f7f7f7; border-right:1px solid #e0e0e0; }
+    #main { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:12px; }
+    label { display:block; margin-top:12px; font-size:14px; color:#333; }
+    input[type=number], input[type=range] { width:100%; margin-top:6px; }
+    button { margin-top:12px; padding:8px 10px; border:0; background:#2b7cff; color:white; border-radius:6px; cursor:pointer; }
+    button.secondary { background:#666; }
+    svg { background: white; border-radius:6px; box-shadow: 0 2px 6px rgba(0,0,0,0.08); max-width:100%; height:auto; }
+    .credits { font-size:12px; color:#666; margin-top:14px; }
+    .row { display:flex; gap:8px; }
+    .row > * { flex:1; }
+  </style>
+</head>
+<body>
+  <aside id="sidebar">
+    <h2>Hex Board Admin</h2>
+
+    <label>Radius (hex steps from center)
+      <input id="radius" type="number" min="1" max="10" value="3" />
+    </label>
+
+    <label>Hex size (pixels)
+      <input id="size" type="range" min="20" max="120" value="48" />
+      <div class="row"><input id="sizeNumber" type="number" min="20" max="120" value="48" /></div>
+    </label>
+
+    <label><input id="labels" type="checkbox" /> Show axial labels</label>
+    <label><input id="altColor" type="checkbox" checked /> Use chess-like alternating colors</label>
+
+    <div class="row">
+      <button id="redraw">Redraw</button>
+      <button id="download" class="secondary">Download SVG</button>
+    </div>
+
+    <p class="credits">Deploy this file as admin.html in a GitHub Pages site to get a URL like:
+      <br><code>https://&lt;username&gt;.github.io/&lt;repo&gt;/admin.html</code>
+    </p>
+
+    <p class="credits">Example: <a href="https://thehumblepotato.github.io/Partial-Insanity/admin.html" target="_blank">thehumblepotato example</a></p>
+  </aside>
+
+  <main id="main">
+    <svg id="board" xmlns="http://www.w3.org/2000/svg" width="1000" height="800" viewBox="-500 -400 1000 800" preserveAspectRatio="xMidYMid meet"></svg>
+  </main>
+
+<script>
+(() => {
+  const svg = document.getElementById('board');
+  const radiusInput = document.getElementById('radius');
+  const sizeRange = document.getElementById('size');
+  const sizeNumber = document.getElementById('sizeNumber');
+  const labelsCheckbox = document.getElementById('labels');
+  const redrawBtn = document.getElementById('redraw');
+  const downloadBtn = document.getElementById('download');
+  const altColorCheckbox = document.getElementById('altColor');
+
+  // Keep range and number in sync
+  sizeRange.addEventListener('input', () => { sizeNumber.value = sizeRange.value; });
+  sizeNumber.addEventListener('input', () => { sizeRange.value = sizeNumber.value; });
+
+  function axialToPixel(q, r, size) {
+    // pointy topped
+    const x = size * Math.sqrt(3) * (q + r / 2.0);
+    const y = size * 1.5 * r;
+    return [x, y];
+  }
+
+  function makeHexBoard(radius) {
+    const cells = [];
+    for (let q = -radius; q <= radius; q++) {
+      const r1 = Math.max(-radius, -q - radius);
+      const r2 = Math.min(radius, -q + radius);
+      for (let r = r1; r <= r2; r++) {
+        cells.push([q, r]);
+      }
+    }
+    return cells;
+  }
+
+  function hexCorners(x, y, size) {
+    const pts = [];
+    for (let i = 0; i < 6; i++) {
+      const angle = (30 + 60 * i) * Math.PI / 180.0; // start at 30deg for pointy-top
+      pts.push([x + size * Math.cos(angle), y + size * Math.sin(angle)]);
+    }
+    return pts;
+  }
+
+  function drawBoard(radius = 3, size = 48, showLabels = false, altColors = true) {
+    // Clear
+    while (svg.firstChild) svg.removeChild(svg.firstChild);
+
+    const cells = makeHexBoard(radius);
+    const pts = cells.map(([q,r]) => axialToPixel(q, r, size));
+    const xs = pts.map(p => p[0]);
+    const ys = pts.map(p => p[1]);
+
+    if (pts.length === 0) return;
+
+    // Compute viewBox
+    const margin = size * 1.7;
+    const minx = Math.min(...xs) - margin;
+    const maxx = Math.max(...xs) + margin;
+    const miny = Math.min(...ys) - margin;
+    const maxy = Math.max(...ys) + margin;
+    const width = maxx - minx;
+    const height = maxy - miny;
+
+    svg.setAttribute('viewBox', `${minx} ${miny} ${width} ${height}`);
+    svg.setAttribute('width', Math.min(1200, Math.max(600, width)));
+    svg.setAttribute('height', Math.min(900, Math.max(400, height)));
+
+    // Colors
+    const light = '#f0d9b5';
+    const dark = '#b58863';
+    const stroke = '#222';
+
+    // Draw hexes
+    cells.forEach(([q,r], idx) => {
+      const [cx, cy] = pts[idx];
+      const corners = hexCorners(cx, cy, size);
+
+      const poly = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+      poly.setAttribute('points', corners.map(p => p.join(',')).join(' '));
+      const parity = (q + r) % 2;
+      const fill = altColors ? (parity === 0 ? light : dark) : '#eee';
+      poly.setAttribute('fill', fill);
+      poly.setAttribute('stroke', stroke);
+      poly.setAttribute('stroke-width', Math.max(0.6, size * 0.03));
+      svg.appendChild(poly);
+
+      if (showLabels) {
+        const txt = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        txt.setAttribute('x', cx);
+        txt.setAttribute('y', cy + (size * 0.12));
+        txt.setAttribute('font-size', Math.max(10, size * 0.2));
+        txt.setAttribute('text-anchor', 'middle');
+        txt.setAttribute('fill', '#111');
+        txt.textContent = `${q},${r}`;
+        svg.appendChild(txt);
+      }
+    });
+  }
+
+  // Initial draw
+  drawBoard(parseInt(radiusInput.value,10), parseInt(sizeRange.value,10), labelsCheckbox.checked, altColorCheckbox.checked);
+
+  // Controls
+  redrawBtn.addEventListener('click', () => {
+    drawBoard(parseInt(radiusInput.value,10), parseInt(sizeRange.value,10), labelsCheckbox.checked, altColorCheckbox.checked);
+  });
+
+  // Redraw when inputs change (live)
+  radiusInput.addEventListener('change', () => drawBoard(parseInt(radiusInput.value,10), parseInt(sizeRange.value,10), labelsCheckbox.checked, altColorCheckbox.checked));
+  sizeRange.addEventListener('change', () => drawBoard(parseInt(radiusInput.value,10), parseInt(sizeRange.value,10), labelsCheckbox.checked, altColorCheckbox.checked));
+  labelsCheckbox.addEventListener('change', () => drawBoard(parseInt(radiusInput.value,10), parseInt(sizeRange.value,10), labelsCheckbox.checked, altColorCheckbox.checked));
+  altColorCheckbox.addEventListener('change', () => drawBoard(parseInt(radiusInput.value,10), parseInt(sizeRange.value,10), labelsCheckbox.checked, altColorCheckbox.checked));
+
+  // Download SVG
+  downloadBtn.addEventListener('click', () => {
+    const serializer = new XMLSerializer();
+    const source = serializer.serializeToString(svg);
+    const blob = new Blob([source], { type: 'image/svg+xml;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    const name = `hexboard-r${radiusInput.value}-s${sizeRange.value}.svg`;
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  });
+
+  // Draw on load and when resizing window for nicer initial scale
+  window.addEventListener('load', () => drawBoard(parseInt(radiusInput.value,10), parseInt(sizeRange.value,10), labelsCheckbox.checked, altColorCheckbox.checked));
+  window.addEventListener('resize', () => drawBoard(parseInt(radiusInput.value,10), parseInt(sizeRange.value,10), labelsCheckbox.checked, altColorCheckbox.checked));
+})();
+</script>
+</body>
+</html>
