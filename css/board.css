@@ -1,0 +1,67 @@
+.hex-board {
+    position: relative;
+    width: 800px;
+    height: 600px;
+    margin: 0 auto;
+    background: #f0f0f0;
+    border: 2px solid #333;
+    border-radius: 10px;
+}
+
+.hexagon {
+    position: absolute;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.hex-inner {
+    width: 100%;
+    height: 100%;
+    position: relative;
+    background: #ffffff;
+    border: 2px solid #333;
+    transition: all 0.2s ease;
+    clip-path: polygon(25% 0%, 75% 0%, 100% 50%, 75% 100%, 25% 100%, 0% 50%);
+}
+
+.hexagon:hover .hex-inner {
+    background: #e0e0e0;
+    transform: scale(1.05);
+}
+
+.hexagon.selected .hex-inner {
+    background: #ffeb3b;
+    border-color: #f57c00;
+    transform: scale(1.1);
+}
+
+.hex-coords {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 10px;
+    color: #666;
+    pointer-events: none;
+    opacity: 0.7;
+}
+
+.hexagon:hover .hex-coords {
+    opacity: 1;
+    font-weight: bold;
+}
+
+/* Board coloring pattern */
+.hex-row:nth-child(odd) .hexagon:nth-child(odd) .hex-inner {
+    background: #f5f5f5;
+}
+
+.hex-row:nth-child(even) .hexagon:nth-child(even) .hex-inner {
+    background: #f5f5f5;
+}
+
+/* Highlight center area */
+.hex-row:nth-child(6) .hexagon:nth-child(6) .hex-inner {
+    background: #fff9c4;
+    border-color: #f9a825;
+}

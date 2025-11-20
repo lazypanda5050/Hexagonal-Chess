@@ -1,0 +1,90 @@
+.piece {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%) rotate(-30deg);
+    font-size: 32px;
+    line-height: 1;
+    text-align: center;
+    cursor: pointer;
+    user-select: none;
+    z-index: 10;
+    transition: all 0.2s ease;
+    filter: drop-shadow(2px 2px 4px rgba(0,0,0,0.3));
+}
+
+.piece:hover {
+    transform: translate(-50%, -50%) rotate(-30deg) scale(1.1);
+    filter: drop-shadow(3px 3px 6px rgba(0,0,0,0.4));
+}
+
+.piece.white {
+    color: #ffffff;
+    text-shadow: 
+        -1px -1px 0 #000,
+        1px -1px 0 #000,
+        -1px 1px 0 #000,
+        1px 1px 0 #000,
+        0 0 3px #000;
+}
+
+.piece.black {
+    color: #000000;
+    text-shadow: 
+        0 0 2px #fff,
+        0 0 4px #fff;
+}
+
+/* Piece-specific styling */
+.piece.pawn {
+    font-size: 28px;
+}
+
+.piece.knight {
+    font-size: 30px;
+}
+
+.piece.bishop {
+    font-size: 34px;
+}
+
+.piece.rook {
+    font-size: 32px;
+}
+
+.piece.queen {
+    font-size: 36px;
+}
+
+.piece.king {
+    font-size: 38px;
+}
+
+/* Captured pieces display */
+.captured-white .piece,
+.captured-black .piece {
+    position: relative;
+    display: inline-block;
+    margin: 2px;
+    font-size: 24px;
+    transform: none;
+}
+
+.captured-white .piece {
+    color: #ffffff;
+    background: #333;
+    border-radius: 50%;
+    width: 30px;
+    height: 30px;
+    line-height: 30px;
+}
+
+.captured-black .piece {
+    color: #000000;
+    background: #fff;
+    border: 1px solid #333;
+    border-radius: 50%;
+    width: 30px;
+    height: 30px;
+    line-height: 30px;
+}
