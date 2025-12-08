@@ -1,5 +1,6 @@
 class FirebaseManager {
     constructor() {
+        console.log('🌐 FirebaseManager constructor called');
         this.database = null;
         this.gameId = null;
         this.playerId = null;
@@ -17,19 +18,25 @@ class FirebaseManager {
             appId: "1:123456789:web:abcdef"
         };
         
+        console.log('🔧 Firebase config loaded, initializing...');
         this.init();
     }
     
     async init() {
+        console.log('🚀 Initializing Firebase...');
         try {
             // Initialize Firebase if not already initialized
             if (!window.firebase) {
+                console.log('📦 Loading Firebase scripts...');
                 const script = document.createElement('script');
                 script.src = 'https://www.gstatic.com/firebasejs/9.6.1/firebase-app-compat.js';
                 document.head.appendChild(script);
                 
                 await new Promise(resolve => {
-                    script.onload = resolve;
+                    script.onload = () => {
+                        console.log('✅ Firebase app script loaded');
+                        resolve();
+                    };
                 });
                 
                 const databaseScript = document.createElement('script');
@@ -37,24 +44,31 @@ class FirebaseManager {
                 document.head.appendChild(databaseScript);
                 
                 await new Promise(resolve => {
-                    databaseScript.onload = resolve;
+                    databaseScript.onload = () => {
+                        console.log('✅ Firebase database script loaded');
+                        resolve();
+                    };
                 });
             }
             
             if (!firebase.apps.length) {
+                console.log('🔧 Initializing Firebase app...');
                 firebase.initializeApp(this.firebaseConfig);
             }
             this.database = firebase.database();
+            console.log('✅ Firebase database initialized');
             
             // Generate or retrieve player ID
             this.playerId = localStorage.getItem('hexChessPlayerId') || 
                            this.generatePlayerId();
             localStorage.setItem('hexChessPlayerId', this.playerId);
+            console.log(`👤 Player ID: ${this.playerId}`);
             
         } catch (error) {
-            console.error('Firebase initialization failed:', error);
+            console.error('❌ Firebase initialization failed:', error);
             // Fallback to local storage mode
             this.database = null;
+            console.log('🔄 Falling back to local storage mode');
         }
     }
     

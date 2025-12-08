@@ -1,5 +1,6 @@
 class HexChessGame {
     constructor(boardId, isOnline = false) {
+        console.log('🎮 HexChessGame constructor called', { boardId, isOnline });
         this.board = new HexBoard(boardId);
         this.pieceManager = new PieceManager(this.board);
         this.validator = new MoveValidator(this.pieceManager);
@@ -10,6 +11,7 @@ class HexChessGame {
         this.isOnline = isOnline;
         
         if (isOnline) {
+            console.log('🌐 Initializing online game with Firebase');
             this.firebase = new FirebaseManager();
             this.firebase.onUpdate((gameData) => this.onRemoteUpdate(gameData));
         }
@@ -23,58 +25,137 @@ class HexChessGame {
     }
     
     setupEventListeners() {
+        console.log('🎯 Setting up event listeners');
+        
         // Override board click handler to include game logic
         this.board.onHexClick = (q, r) => this.handleHexClick(q, r);
         
         // Control buttons
-        document.getElementById('new-game').addEventListener('click', () => this.newGame());
-        document.getElementById('undo-move').addEventListener('click', () => this.undoMove());
-        document.getElementById('resign').addEventListener('click', () => this.resign());
+        const newGameBtn = document.getElementById('new-game');
+        const undoMoveBtn = document.getElementById('undo-move');
+        const resignBtn = document.getElementById('resign');
+        
+        if (newGameBtn) {
+            console.log('🔘 Found New Game button, adding click listener');
+            newGameBtn.addEventListener('click', () => {
+                console.log('🆕 New Game button clicked!');
+                this.newGame();
+            });
+        } else {
+            console.warn('⚠️ New Game button not found');
+        }
+        
+        if (undoMoveBtn) {
+            console.log('🔘 Found Undo Move button, adding click listener');
+            undoMoveBtn.addEventListener('click', () => {
+                console.log('↩️ Undo Move button clicked!');
+                this.undoMove();
+            });
+        } else {
+            console.warn('⚠️ Undo Move button not found');
+        }
+        
+        if (resignBtn) {
+            console.log('🔘 Found Resign button, adding click listener');
+            resignBtn.addEventListener('click', () => {
+                console.log('🏳️ Resign button clicked!');
+                this.resign();
+            });
+        } else {
+            console.warn('⚠️ Resign button not found');
+        }
         
         if (this.isOnline) {
-            document.getElementById('create-game').addEventListener('click', () => this.createOnlineGame());
-            document.getElementById('join-game').addEventListener('click', () => this.joinOnlineGame());
+            const createGameBtn = document.getElementById('create-game');
+            const joinGameBtn = document.getElementById('join-game');
+            
+            if (createGameBtn) {
+                console.log('🔘 Found Create Online Game button, adding click listener');
+                createGameBtn.addEventListener('click', () => {
+                    console.log('🌐 Create Online Game button clicked!');
+                    this.createOnlineGame();
+                });
+            } else {
+                console.warn('⚠️ Create Online Game button not found');
+            }
+            
+            if (joinGameBtn) {
+                console.log('🔘 Found Join Online Game button, adding click listener');
+                joinGameBtn.addEventListener('click', () => {
+                    console.log('🔗 Join Online Game button clicked!');
+                    this.joinOnlineGame();
+                });
+            } else {
+                console.warn('⚠️ Join Online Game button not found');
+            }
         }
     }
     
     handleHexClick(q, r) {
+        console.log(`🎯 Hex clicked at coordinates (${q}, ${r})`);
         const hexKey = `${q},${r}`;
         const hex = this.board.getHexAt(q, r);
         const piece = this.pieceManager.getPieceAt(q, r);
         
+        console.log('📊 Hex click details:', {
+            hexKey,
+            hasPiece: !!piece,
+            piece: piece ? `${piece.color} ${piece.type}` : 'none',
+            currentTurn: this.currentTurn,
+            selectedHex: this.board.selectedHex
+        });
+        
         if (this.board.selectedHex) {
             if (this.board.selectedHex === hexKey) {
+                console.log('🔄 Deselecting current hex');
                 hex.classList.remove('selected');
                 this.board.selectedHex = null;
             } else {
+                console.log(`🚀 Attempting move from ${this.board.selectedHex} to ${hexKey}`);
                 this.attemptMove(this.board.selectedHex, hexKey);
             }
         } else if (piece && piece.color === this.currentTurn) {
+            console.log(`✅ Selecting ${piece.color} ${piece.type} at (${q}, ${r})`);
             hex.classList.add('selected');
             this.board.selectedHex = hexKey;
+        } else {
+            console.log('❌ Cannot select - no piece or wrong turn');
         }
     }
     
     attemptMove(fromKey, toKey) {
+        console.log(`🎲 Attempting move: ${fromKey} → ${toKey}`);
         const [fromQ, fromR] = fromKey.split(',').map(Number);
         const [toQ, toR] = toKey.split(',').map(Number);
         
         const piece = this.pieceManager.getPieceAt(fromQ, fromR);
         const targetPiece = this.pieceManager.getPieceAt(toQ, toR);
         
+        console.log('📋 Move validation details:', {
+            piece: piece ? `${piece.color} ${piece.type}` : 'none',
+            targetPiece: targetPiece ? `${targetPiece.color} ${targetPiece.type}` : 'none',
+            currentTurn: this.currentTurn,
+            fromCoords: { q: fromQ, r: fromR },
+            toCoords: { q: toQ, r: toR }
+        });
+        
         if (!piece || piece.color !== this.currentTurn) {
+            console.log('❌ Move invalid: No piece or wrong turn');
             return false;
         }
         
         if (targetPiece && targetPiece.color === piece.color) {
+            console.log('❌ Move invalid: Cannot capture own piece');
             return false;
         }
         
         if (this.isValidMove(piece, fromQ, fromR, toQ, toR)) {
+            console.log('✅ Move valid, executing...');
             this.makeMove(fromQ, fromR, toQ, toR);
             return true;
         }
         
+        console.log('❌ Move invalid: Failed validation');
         return false;
     }
     
@@ -161,9 +242,17 @@ class HexChessGame {
         const piece = this.pieceManager.getPieceAt(fromQ, fromR);
         const targetPiece = this.pieceManager.getPieceAt(toQ, toR);
         
+        console.log('🎯 Executing move:', {
+            piece: `${piece.color} ${piece.type}`,
+            from: `${fromQ},${fromR}`,
+            to: `${toQ},${toR}`,
+            targetPiece: targetPiece ? `${targetPiece.color} ${targetPiece.type}` : 'none'
+        });
+        
         // Capture piece if present
         if (targetPiece) {
             this.capturedPieces[targetPiece.color].push(targetPiece);
+            console.log(`💰 Captured: ${targetPiece.color} ${targetPiece.type}`);
         }
         
         // Move piece
@@ -179,23 +268,31 @@ class HexChessGame {
             hadMoved: piece.hasMoved
         });
         
+        console.log(`📝 Move added to history. Total moves: ${this.moveHistory.length}`);
+        
         // Clear selection
         const fromHex = this.board.getHexAt(fromQ, fromR);
         fromHex.classList.remove('selected');
         this.board.selectedHex = null;
         
         // Switch turns
+        const previousTurn = this.currentTurn;
         this.currentTurn = this.currentTurn === 'white' ? 'black' : 'white';
+        console.log(`🔄 Turn switched: ${previousTurn} → ${this.currentTurn}`);
         
         // Check for checkmate or stalemate
         if (this.validator.isCheckmate(this.currentTurn)) {
             this.gameStatus = `${this.currentTurn === 'white' ? 'Black' : 'White'} wins by checkmate`;
+            console.log(`♟️ CHECKMATE! ${this.gameStatus}`);
         } else if (this.validator.isStalemate(this.currentTurn)) {
             this.gameStatus = 'Stalemate';
+            console.log(`🤝 STALEMATE! Game is drawn`);
         } else if (this.validator.isInCheck(this.currentTurn)) {
             this.gameStatus = `${this.currentTurn} is in check`;
+            console.log(`⚠️ CHECK! ${this.currentTurn} is in check`);
         } else {
             this.gameStatus = 'active';
+            console.log(`✅ Game continues normally`);
         }
         
         // Update UI
@@ -203,6 +300,7 @@ class HexChessGame {
         
         // Sync with Firebase if online
         if (this.isOnline && this.firebase) {
+            console.log('🌐 Syncing move with Firebase...');
             const move = {
                 from: { q: fromQ, r: fromR },
                 to: { q: toQ, r: toR },
@@ -253,23 +351,36 @@ class HexChessGame {
     }
     
     newGame() {
+        console.log('🆕 Starting new game - resetting all state');
         this.currentTurn = 'white';
         this.moveHistory = [];
         this.capturedPieces = { white: [], black: [] };
         this.gameStatus = 'active';
         
+        console.log('🔄 Resetting board and pieces');
         // Reset board and pieces
         this.board = new HexBoard('hex-board');
         this.pieceManager = new PieceManager(this.board);
         this.board.onHexClick = (q, r) => this.handleHexClick(q, r);
         
+        console.log('🎮 New game initialized, updating UI');
         this.updateUI();
     }
     
     undoMove() {
-        if (this.moveHistory.length === 0) return;
+        console.log('↩️ Undo move requested');
+        if (this.moveHistory.length === 0) {
+            console.log('❌ No moves to undo');
+            return;
+        }
         
         const lastMove = this.moveHistory.pop();
+        console.log('📋 Undoing last move:', {
+            piece: `${lastMove.piece.color} ${lastMove.piece.type}`,
+            from: `${lastMove.from.q},${lastMove.from.r}`,
+            to: `${lastMove.to.q},${lastMove.to.r}`,
+            captured: lastMove.captured ? `${lastMove.captured.color} ${lastMove.captured.type}` : 'none'
+        });
         
         // Move piece back
         this.pieceManager.movePiece(
@@ -281,52 +392,75 @@ class HexChessGame {
         const piece = this.pieceManager.getPieceAt(lastMove.from.q, lastMove.from.r);
         if (piece) {
             piece.hasMoved = lastMove.hadMoved;
+            console.log(`🔄 Restored hasMoved state for ${piece.color} ${piece.type}: ${piece.hasMoved}`);
         }
         
         // Restore captured piece if any
         if (lastMove.captured) {
             this.capturedPieces[lastMove.captured.color].pop();
             this.pieceManager.addPiece(lastMove.captured);
+            console.log(`♻️ Restored captured piece: ${lastMove.captured.color} ${lastMove.captured.type}`);
         }
         
         // Switch turn back
         this.currentTurn = lastMove.turn;
+        console.log(`🔄 Turn switched back to: ${this.currentTurn}`);
         
         this.updateUI();
     }
     
     resign() {
+        console.log(`🏳️ ${this.currentTurn} player resigning from game`);
         this.gameStatus = `${this.currentTurn === 'white' ? 'Black' : 'White'} wins by resignation`;
+        console.log(`🏆 Game status updated: ${this.gameStatus}`);
         this.updateUI();
         
         if (this.isOnline && this.firebase) {
+            console.log('🌐 Leaving online game due to resignation');
             this.firebase.leaveGame();
         }
     }
     
     async createOnlineGame() {
-        if (!this.firebase) return;
+        console.log('🌐 Create online game button clicked');
+        if (!this.firebase) {
+            console.log('❌ Firebase not available');
+            this.showError('Firebase not available');
+            return;
+        }
         
         try {
+            console.log('🎲 Creating new online game...');
             const gameId = await this.firebase.createGame();
+            console.log(`✅ Online game created with ID: ${gameId}`);
             this.showGameId(gameId);
         } catch (error) {
-            console.error('Failed to create game:', error);
+            console.error('❌ Failed to create game:', error);
             this.showError('Failed to create game');
         }
     }
     
     async joinOnlineGame() {
-        if (!this.firebase) return;
+        console.log('🔗 Join online game button clicked');
+        if (!this.firebase) {
+            console.log('❌ Firebase not available');
+            this.showError('Firebase not available');
+            return;
+        }
         
         const gameId = prompt('Enter game ID:');
-        if (!gameId) return;
+        if (!gameId) {
+            console.log('❌ No game ID entered');
+            return;
+        }
         
+        console.log(`🎯 Attempting to join game: ${gameId}`);
         try {
             await this.firebase.joinGame(gameId);
+            console.log('✅ Successfully joined online game');
             this.showSuccess('Joined game successfully');
         } catch (error) {
-            console.error('Failed to join game:', error);
+            console.error('❌ Failed to join game:', error);
             this.showError('Failed to join game: ' + error.message);
         }
     }

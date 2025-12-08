@@ -1,5 +1,6 @@
 class HexBoard {
     constructor(containerId) {
+        console.log(`🎯 HexBoard constructor called for container: ${containerId}`);
         this.container = document.getElementById(containerId);
         this.hexSize = 30;
         this.hexagons = new Map();
@@ -8,6 +9,7 @@ class HexBoard {
         
         // Generate hexagonal board coordinates programmatically
         this.hexCoordinates = this.generateHexBoard();
+        console.log(`📐 Generated ${this.hexCoordinates.length} hexagonal coordinates`);
         
         this.init();
     }
@@ -87,19 +89,30 @@ class HexBoard {
     }
     
     onHexClick(q, r) {
+        console.log(`🎯 Board.onHexClick called for coordinates (${q}, ${r})`);
         const hexKey = `${q},${r}`;
         const hex = this.hexagons.get(hexKey);
         
+        console.log('📋 Board click details:', {
+            hexKey,
+            hasHex: !!hex,
+            selectedHex: this.selectedHex,
+            isSameHex: this.selectedHex === hexKey
+        });
+        
         if (this.selectedHex) {
             if (this.selectedHex === hexKey) {
+                console.log('🔄 Deselecting hex (same hex clicked)');
                 hex.classList.remove('selected');
                 this.selectedHex = null;
             } else {
+                console.log(`🚀 Moving piece from ${this.selectedHex} to ${hexKey}`);
                 this.movePiece(this.selectedHex, hexKey);
                 this.hexagons.get(this.selectedHex).classList.remove('selected');
                 this.selectedHex = null;
             }
         } else {
+            console.log(`✅ Selecting hex: ${hexKey}`);
             hex.classList.add('selected');
             this.selectedHex = hexKey;
         }
@@ -122,12 +135,16 @@ class HexBoard {
     }
     
     setupEventListeners() {
+        console.log('⌨️ Setting up keyboard event listeners');
         document.addEventListener('keydown', (e) => {
             if (e.key === 'Escape') {
                 if (this.selectedHex) {
+                    console.log(`🚫 Escape key pressed - deselecting hex: ${this.selectedHex}`);
                     const hex = this.hexagons.get(this.selectedHex);
                     hex.classList.remove('selected');
                     this.selectedHex = null;
+                } else {
+                    console.log('🚫 Escape key pressed - no hex selected');
                 }
             }
         });

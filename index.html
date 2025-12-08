@@ -59,11 +59,24 @@
     <script src="https://cdn.jsdelivr.net/npm/eruda"></script>
     <script>
         // Initialize Eruda for debugging
+        console.log('🔧 Initializing Eruda debugging console...');
         eruda.init();
+        console.log('✅ Eruda debugging console ready');
         
         // Initialize the game when the page loads
         document.addEventListener('DOMContentLoaded', function() {
+            console.log('🚀 DOM Content Loaded - starting game initialization...');
+            console.log('📋 Available elements:', {
+                hexBoard: !!document.getElementById('hex-board'),
+                newGameBtn: !!document.getElementById('new-game'),
+                undoMoveBtn: !!document.getElementById('undo-move'),
+                resignBtn: !!document.getElementById('resign'),
+                createGameBtn: !!document.getElementById('create-game'),
+                joinGameBtn: !!document.getElementById('join-game')
+            });
+            
             const game = new HexChessGame('hex-board');
+            console.log('🎮 HexChessGame instance created and ready!');
         });
     </script>
 </body>
