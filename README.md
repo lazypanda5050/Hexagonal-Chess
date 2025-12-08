@@ -15,15 +15,10 @@ A fully functional hexagonal chess web app built with pure JavaScript, featuring
 ## 🚀 Quick Start
 
 ### Play Online
-1. Visit the [GitHub Pages deployment](https://yourusername.github.io/Hexagonal-Chess/)
+1. Visit the [GitHub Pages deployment](https://lazypanda5050.github.io/Hexagonal-Chess/)
 2. Click "Create Online Game" to host a game
 3. Share the game ID with a friend
 4. Or click "Join Online Game" and enter a game ID
-
-### Bookmarklet Installation
-1. Visit the [bookmarklet page](https://yourusername.github.io/Hexagonal-Chess/bookmarklet.html)
-2. Drag the "⬡ Hexagonal Chess" link to your bookmarks bar
-3. Click the bookmarklet on any webpage to launch the game
 
 ### Local Development
 ```bash
