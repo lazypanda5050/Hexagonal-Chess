@@ -304,6 +304,8 @@
         switch (piece.type) {
             case 'pawn':
                 return getPawnMoves(piece);
+            case 'rook':
+                return getRookMoves(piece);
             case 'bishop':
                 return getBishopMoves(piece);
             case 'rook':
@@ -368,16 +370,16 @@
     function getRookMoves(piece) {
         const moves = [];
         const directions = [
-            { q: 1, r: 0 },
-            { q: -1, r: 0 },
-            { q: 0, r: 1 },
-            { q: 0, r: -1 },
-            { q: 1, r: -1 },
-            { q: -1, r: 1 }
+            { q: 1, r: 0 },   // east-west
+            { q: -1, r: 0 },  // west-east
+            { q: 0, r: 1 },   // southeast-northwest
+            { q: 0, r: -1 },  // northwest-southeast
+            { q: 1, r: -1 }, // northeast-southwest
+            { q: -1, r: 1 }  // southwest-northeast
         ];
 
         directions.forEach(dir => {
-            for (let i = 1; i <= BOARD_RADIUS * 2; i++) {
+            for (let i = 1; i <= BOARD_RADIUS; i++) {
                 const target = {
                     q: piece.q + dir.q * i,
                     r: piece.r + dir.r * i
