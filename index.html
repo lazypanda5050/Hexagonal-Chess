@@ -4,80 +4,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Hexagonal Chess</title>
-    <link rel="stylesheet" href="css/board.css">
-    <link rel="stylesheet" href="css/pieces.css">
-    <link rel="stylesheet" href="css/ui.css">
+    <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
-    <div class="container">
-        <header>
-            <h1>Hexagonal Chess</h1>
-            <div class="game-info">
-                <div class="turn-indicator">
-                    Current Turn: <span id="current-turn">White</span>
-                </div>
-                <div class="game-status">
-                    Status: <span id="game-status">Active</span>
-                </div>
-            </div>
-        </header>
-        
-        <main>
-            <div class="game-container">
-                <div id="hex-board" class="board-container"></div>
-                <div class="sidebar">
-                    <div class="move-history">
-                        <h3>Move History</h3>
-                        <div id="moves-list"></div>
-                    </div>
-                    <div class="captured-pieces">
-                        <h3>Captured Pieces</h3>
-                        <div class="captured-white" id="captured-white"></div>
-                        <div class="captured-black" id="captured-black"></div>
-                    </div>
-                    <div class="controls">
-                        <button id="new-game">New Game</button>
-                        <button id="undo-move">Undo Move</button>
-                        <button id="resign">Resign</button>
-                        <button id="create-game" class="online-btn">Create Online Game</button>
-                        <button id="join-game" class="online-btn">Join Online Game</button>
-                    </div>
-                </div>
-            </div>
-        </main>
-        
-        <footer>
-            <p>Hexagonal Chess - Based on Gliński's variant</p>
-        </footer>
-    </div>
-    
-    <script src="js/board.js"></script>
-    <script src="js/pieces.js"></script>
-    <script src="js/validator.js"></script>
-    <script src="js/firebase.js"></script>
+    <div id="app"></div>
     <script src="js/game.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/eruda"></script>
-    <script>
-        // Initialize Eruda for debugging
-        console.log('🔧 Initializing Eruda debugging console...');
-        eruda.init();
-        console.log('✅ Eruda debugging console ready');
-        
-        // Initialize the game when the page loads
-        document.addEventListener('DOMContentLoaded', function() {
-            console.log('🚀 DOM Content Loaded - starting game initialization...');
-            console.log('📋 Available elements:', {
-                hexBoard: !!document.getElementById('hex-board'),
-                newGameBtn: !!document.getElementById('new-game'),
-                undoMoveBtn: !!document.getElementById('undo-move'),
-                resignBtn: !!document.getElementById('resign'),
-                createGameBtn: !!document.getElementById('create-game'),
-                joinGameBtn: !!document.getElementById('join-game')
-            });
-            
-            const game = new HexChessGame('hex-board');
-            console.log('🎮 HexChessGame instance created and ready!');
-        });
-    </script>
 </body>
 </html>

@@ -1,0 +1,73 @@
+:root {
+    --hex-size: 46px;
+    --hex-height: calc(var(--hex-size) * 1.7320508076);
+    --board-shadow: 0 30px 60px rgba(0, 0, 0, 0.4);
+    --color-dark: #111216;
+    --color-light: #f5f5f5;
+    --color-mid: #8c8c8c;
+}
+
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+body {
+    font-family: 'Segoe UI', Roboto, system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+    background: #050608;
+    color: #f8f8f8;
+    min-height: 100vh;
+}
+
+#app {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 3rem 1.5rem;
+}
+
+#board {
+    position: relative;
+    filter: drop-shadow(var(--board-shadow));
+}
+
+.hex-tile {
+    position: absolute;
+    width: calc(var(--hex-size) * 2);
+    height: var(--hex-height);
+    clip-path: polygon(25% 0%, 75% 0%, 100% 50%, 75% 100%, 25% 100%, 0% 50%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.85rem;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    user-select: none;
+    transition: transform 180ms ease, box-shadow 180ms ease;
+}
+
+.hex-tile::after {
+    content: attr(data-coord);
+}
+
+.hex-tile.color-0 {
+    background: var(--color-dark);
+    color: #f1f1f1;
+}
+
+.hex-tile.color-1 {
+    background: var(--color-light);
+    color: #111216;
+}
+
+.hex-tile.color-2 {
+    background: var(--color-mid);
+    color: #111216;
+}
+
+.hex-tile:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 10px 20px rgba(0, 0, 0, 0.35);
+}

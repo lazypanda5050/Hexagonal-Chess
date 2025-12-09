@@ -20,20 +20,6 @@ A fully functional hexagonal chess web app built with pure JavaScript, featuring
 3. Share the game ID with a friend
 4. Or click "Join Online Game" and enter a game ID
 
-### Local Development
-```bash
-# Clone the repository
-git clone https://github.com/yourusername/Hexagonal-Chess.git
-cd Hexagonal-Chess
-
-# Start a local server
-python3 -m http.server 8000
-# or
-npx serve .
-
-# Open http://localhost:8000 in your browser
-```
-
 ## 🎯 Game Rules
 
 ### Board Layout
