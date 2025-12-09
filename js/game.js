@@ -101,6 +101,15 @@
         { q: 1, r: -2 },
         { q: -1, r: 2 }
     ];
+    const STRAIGHT_DIRECTIONS = [
+        { q: 1, r: 0 },
+        { q: 0, r: 1 },
+        { q: -1, r: 1 },
+        { q: -1, r: 0 },
+        { q: 0, r: -1 },
+        { q: 1, r: -1 }
+    ];
+    const KNIGHT_OFFSETS = buildKnightOffsets();
 
     const board = document.createElement('div');
     board.id = 'board';
@@ -312,6 +321,8 @@
                 return getKingMoves(piece);
             case 'bishop':
                 return getBishopMoves(piece);
+            case 'knight':
+                return getKnightMoves(piece);
             default:
                 return [];
         }
@@ -371,13 +382,44 @@
 
     function getRookMoves(piece) {
         const moves = [];
+        STRAIGHT_DIRECTIONS.forEach(dir => {
+            let q = piece.q + dir.q;
+            let r = piece.r + dir.r;
+            while (tilePositions.has(coordKey(q, r))) {
+                const key = coordKey(q, r);
+                const occupantId = boardOccupancy.get(key);
+                if (!occupantId) {
+                    moves.push({ q, r });
+                } else {
+                    const occupant = piecesById.get(occupantId);
+                    if (occupant && occupant.color !== piece.color && !occupant.isCaptured) {
+                        moves.push({ q, r, captureId: occupantId });
+                    }
+                    break;
+                }
+                q += dir.q;
+                r += dir.r;
+            }
+        });
+
+        return moves;
+    }
+
+    function getQueenMoves(piece) {
+        const moves = [];
         const directions = [
-            { q: 1, r: 0 },   // east-west
-            { q: -1, r: 0 },  // west-east
-            { q: 0, r: 1 },   // southeast-northwest
-            { q: 0, r: -1 },  // northwest-southeast
-            { q: 1, r: -1 }, // northeast-southwest
-            { q: -1, r: 1 }  // southwest-northeast
+            { q: 1, r: 0 },   // rook directions
+            { q: -1, r: 0 },
+            { q: 0, r: 1 },
+            { q: 0, r: -1 },
+            { q: 1, r: -1 },
+            { q: -1, r: 1 },
+            { q: 2, r: -1 },  // bishop directions
+            { q: -2, r: 1 },
+            { q: 1, r: 1 },
+            { q: -1, r: -1 },
+            { q: 2, r: -1 },
+            { q: -2, r: 1 }
         ];
 
         directions.forEach(dir => {
@@ -514,6 +556,27 @@
                 }
                 q += direction.q;
                 r += direction.r;
+            }
+        });
+        return moves;
+    }
+
+    function getKnightMoves(piece) {
+        const moves = [];
+        KNIGHT_OFFSETS.forEach(offset => {
+            const target = { q: piece.q + offset.q, r: piece.r + offset.r };
+            const key = coordKey(target.q, target.r);
+            if (!tilePositions.has(key)) {
+                return;
+            }
+            const occupantId = boardOccupancy.get(key);
+            if (!occupantId) {
+                moves.push(target);
+                return;
+            }
+            const occupant = piecesById.get(occupantId);
+            if (occupant && occupant.color !== piece.color && !occupant.isCaptured) {
+                moves.push({ ...target, captureId: occupantId });
             }
         });
         return moves;
@@ -768,6 +831,32 @@
         [blackKing, blackQueen].forEach(piece => {
             piece.initialQ = piece.q;
             piece.initialR = piece.r;
+        });
+    }
+
+    function buildKnightOffsets() {
+        const offsets = [];
+        const count = STRAIGHT_DIRECTIONS.length;
+        STRAIGHT_DIRECTIONS.forEach((dir, index) => {
+            const nextDir = STRAIGHT_DIRECTIONS[(index + 1) % count];
+            const prevDir = STRAIGHT_DIRECTIONS[(index + count - 1) % count];
+            offsets.push({
+                q: dir.q * 2 + nextDir.q,
+                r: dir.r * 2 + nextDir.r
+            });
+            offsets.push({
+                q: dir.q * 2 + prevDir.q,
+                r: dir.r * 2 + prevDir.r
+            });
+        });
+        const seen = new Set();
+        return offsets.filter(offset => {
+            const key = coordKey(offset.q, offset.r);
+            if (seen.has(key)) {
+                return false;
+            }
+            seen.add(key);
+            return true;
         });
     }
 })();
