@@ -236,7 +236,7 @@
             return;
         }
         const piece = piecesById.get(occupantId);
-        if (!piece || piece.isCaptured || piece.type !== 'pawn') {
+        if (!piece || piece.isCaptured || (piece.type !== 'pawn' && piece.type !== 'rook')) {
             clearSelection();
             return;
         }
@@ -249,7 +249,7 @@
 
     function selectPiece(piece) {
         selectedPieceId = piece.id;
-        availableMoves = getPawnMoves(piece);
+        availableMoves = piece.type === 'pawn' ? getPawnMoves(piece) : getRookMoves(piece);
         highlightSelection(piece, availableMoves);
     }
 
@@ -332,6 +332,45 @@
             const occupant = piecesById.get(occupantId);
             if (occupant && occupant.color !== piece.color && !occupant.isCaptured) {
                 moves.push({ ...target, captureId: occupantId });
+            }
+        });
+
+        return moves;
+    }
+
+    function getRookMoves(piece) {
+        const moves = [];
+        const directions = [
+            { q: 1, r: 0 },
+            { q: -1, r: 0 },
+            { q: 0, r: 1 },
+            { q: 0, r: -1 },
+            { q: 1, r: -1 },
+            { q: -1, r: 1 }
+        ];
+
+        directions.forEach(dir => {
+            for (let i = 1; i <= BOARD_RADIUS * 2; i++) {
+                const target = {
+                    q: piece.q + dir.q * i,
+                    r: piece.r + dir.r * i
+                };
+                const targetKey = coordKey(target.q, target.r);
+                
+                if (!tilePositions.has(targetKey)) {
+                    break;
+                }
+                
+                const occupantId = boardOccupancy.get(targetKey);
+                if (!occupantId) {
+                    moves.push({ ...target });
+                } else {
+                    const occupant = piecesById.get(occupantId);
+                    if (occupant && occupant.color !== piece.color && !occupant.isCaptured) {
+                        moves.push({ ...target, captureId: occupantId });
+                    }
+                    break;
+                }
             }
         });
 
