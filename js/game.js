@@ -306,10 +306,10 @@
                 return getPawnMoves(piece);
             case 'rook':
                 return getRookMoves(piece);
+            case 'queen':
+                return getQueenMoves(piece);
             case 'bishop':
                 return getBishopMoves(piece);
-            case 'rook':
-                return getRookMoves(piece);
             default:
                 return [];
         }
@@ -376,6 +376,51 @@
             { q: 0, r: -1 },  // northwest-southeast
             { q: 1, r: -1 }, // northeast-southwest
             { q: -1, r: 1 }  // southwest-northeast
+        ];
+
+        directions.forEach(dir => {
+            for (let i = 1; i <= BOARD_RADIUS; i++) {
+                const target = {
+                    q: piece.q + dir.q * i,
+                    r: piece.r + dir.r * i
+                };
+                const targetKey = coordKey(target.q, target.r);
+                
+                if (!tilePositions.has(targetKey)) {
+                    break;
+                }
+                
+                const occupantId = boardOccupancy.get(targetKey);
+                if (!occupantId) {
+                    moves.push({ ...target });
+                } else {
+                    const occupant = piecesById.get(occupantId);
+                    if (occupant && occupant.color !== piece.color && !occupant.isCaptured) {
+                        moves.push({ ...target, captureId: occupantId });
+                    }
+                    break;
+                }
+            }
+        });
+
+        return moves;
+    }
+
+    function getQueenMoves(piece) {
+        const moves = [];
+        const directions = [
+            { q: 1, r: 0 },   // rook directions
+            { q: -1, r: 0 },
+            { q: 0, r: 1 },
+            { q: 0, r: -1 },
+            { q: 1, r: -1 },
+            { q: -1, r: 1 },
+            { q: 2, r: -1 },  // bishop directions
+            { q: -2, r: 1 },
+            { q: 1, r: 1 },
+            { q: -1, r: -1 },
+            { q: 2, r: -1 },
+            { q: -2, r: 1 }
         ];
 
         directions.forEach(dir => {
