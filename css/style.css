@@ -105,9 +105,12 @@ body {
 }
 
 .hex-tile.tile-selected,
-.hex-tile.tile-move,
-.hex-tile.tile-capture {
+.hex-tile.tile-move {
     background: #a6f5a8;
+}
+
+.hex-tile.tile-capture {
+    background: #f5a6a6;
 }
 
 .board-label {
