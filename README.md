@@ -7,9 +7,7 @@ A fully functional hexagonal chess web app built with pure JavaScript, featuring
 - **Hexagonal Board**: 91-hex Gliński's standard hexagonal chess layout
 - **Complete Game Rules**: All chess pieces adapted for hexagonal movement
 - **Real-time Multiplayer**: Firebase integration for cross-network play
-- **Bookmarklet Support**: Play on any webpage without leaving your current site
 - **Responsive Design**: Works on desktop and mobile devices
-- **Local Storage**: Save game progress locally
 - **Modern UI**: Clean, intuitive interface with drag-and-drop support
 
 ## 🚀 Quick Start

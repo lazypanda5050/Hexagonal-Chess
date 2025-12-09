@@ -11,13 +11,17 @@
     const hexSize = parseFloat(rootStyles.getPropertyValue('--hex-size')) || 46;
     const padding = hexSize * 1.25;
 
+    const boardContainer = document.createElement('div');
+    boardContainer.id = 'board-container';
+
     const board = document.createElement('div');
     board.id = 'board';
 
     const tiles = buildTiles();
     sizeBoard(tiles);
     renderTiles(tiles);
-    appRoot.appendChild(board);
+    boardContainer.appendChild(board);
+    appRoot.appendChild(boardContainer);
 
     function buildTiles() {
         const result = [];
