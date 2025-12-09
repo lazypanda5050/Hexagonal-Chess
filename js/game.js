@@ -15,6 +15,17 @@
     const pieceSize = hexSize * 1.2;
 
     const tilePositions = new Map();
+    const tileElements = new Map();
+    const piecesById = new Map();
+    const boardOccupancy = new Map();
+    const pawnStartingSquares = {
+        white: new Set(),
+        black: new Set()
+    };
+    let pieceIdCounter = 0;
+    let selectedPieceId = null;
+    let availableMoves = [];
+    const highlightedTiles = [];
 
     const PIECE_SPRITES = {
         white: {
@@ -82,21 +93,27 @@
         }
     ];
 
-    const initialPieces = buildInitialPieces();
-
-    const boardContainer = document.createElement('div');
-    boardContainer.id = 'board-container';
-
     const board = document.createElement('div');
     board.id = 'board';
 
     const tiles = buildTiles();
     sizeBoard(tiles);
     renderTiles(tiles);
-    renderPieces(initialPieces);
     renderLabels(tiles);
+
+    const boardContainer = document.createElement('div');
+    boardContainer.id = 'board-container';
     boardContainer.appendChild(board);
-    appRoot.appendChild(boardContainer);
+
+    const layout = document.createElement('div');
+    layout.id = 'game-layout';
+    const controls = buildGameControls();
+    layout.appendChild(boardContainer);
+    layout.appendChild(controls);
+
+    appRoot.appendChild(layout);
+
+    resetBoard();
 
     function buildTiles() {
         const result = [];
@@ -136,12 +153,18 @@
             const offsetY = tile.y - minY + padding / 2;
             tileElement.style.left = `${offsetX}px`;
             tileElement.style.top = `${offsetY}px`;
+            tileElement.dataset.q = tile.q;
+            tileElement.dataset.r = tile.r;
+            tileElement.addEventListener('click', () => {
+                handleTileClick(tile.q, tile.r);
+            });
             tilePositions.set(coordKey(tile.q, tile.r), {
                 left: offsetX,
                 top: offsetY,
                 centerX: offsetX + HEX_WIDTH / 2,
                 centerY: offsetY + HEX_HEIGHT / 2
             });
+            tileElements.set(coordKey(tile.q, tile.r), tileElement);
             board.appendChild(tileElement);
         });
     }
@@ -160,8 +183,214 @@
             pieceElement.height = pieceSize;
             pieceElement.style.left = `${position.centerX - pieceSize / 2}px`;
             pieceElement.style.top = `${position.centerY - pieceSize / 2}px`;
+            piece.element = pieceElement;
+            pieceElement.dataset.pieceId = piece.id;
             board.appendChild(pieceElement);
         });
+    }
+
+    function resetBoard() {
+        clearSelection();
+        board.querySelectorAll('.piece').forEach(pieceElement => {
+            pieceElement.parentNode?.removeChild(pieceElement);
+        });
+        piecesById.clear();
+        boardOccupancy.clear();
+        pieceIdCounter = 0;
+        const freshPieces = createInitialPieces();
+        placePieces(freshPieces);
+    }
+
+    function createInitialPieces() {
+        const basePieces = buildInitialPieces().map(piece => ({
+            ...piece,
+            id: `piece-${pieceIdCounter++}`,
+            hasMoved: false,
+            initialQ: piece.q,
+            initialR: piece.r,
+            element: null,
+            isCaptured: false
+        }));
+        swapBlackRoyalPositions(basePieces);
+        return basePieces;
+    }
+
+    function placePieces(pieces) {
+        pieces.forEach(piece => {
+            piecesById.set(piece.id, piece);
+            boardOccupancy.set(coordKey(piece.q, piece.r), piece.id);
+        });
+        renderPieces(pieces);
+    }
+
+    function handleTileClick(q, r) {
+        const move = availableMoves.find(entry => entry.q === q && entry.r === r);
+        if (move && selectedPieceId) {
+            moveSelectedPieceTo(move);
+            return;
+        }
+        const key = coordKey(q, r);
+        const occupantId = boardOccupancy.get(key);
+        if (!occupantId) {
+            clearSelection();
+            return;
+        }
+        const piece = piecesById.get(occupantId);
+        if (!piece || piece.isCaptured || piece.type !== 'pawn') {
+            clearSelection();
+            return;
+        }
+        if (selectedPieceId === piece.id) {
+            clearSelection();
+            return;
+        }
+        selectPiece(piece);
+    }
+
+    function selectPiece(piece) {
+        selectedPieceId = piece.id;
+        availableMoves = getPawnMoves(piece);
+        highlightSelection(piece, availableMoves);
+    }
+
+    function clearSelection() {
+        selectedPieceId = null;
+        availableMoves = [];
+        clearHighlightedTiles();
+    }
+
+    function highlightSelection(piece, moves) {
+        clearHighlightedTiles();
+        highlightTile(piece.q, piece.r, 'tile-selected');
+        moves.forEach(move => {
+            const className = move.captureId ? 'tile-capture' : 'tile-move';
+            highlightTile(move.q, move.r, className);
+        });
+    }
+
+    function highlightTile(q, r, className) {
+        const tileElement = tileElements.get(coordKey(q, r));
+        if (!tileElement) {
+            return;
+        }
+        tileElement.classList.add(className);
+        if (!highlightedTiles.includes(tileElement)) {
+            highlightedTiles.push(tileElement);
+        }
+    }
+
+    function clearHighlightedTiles() {
+        highlightedTiles.forEach(tileEl => {
+            tileEl.classList.remove('tile-selected', 'tile-move', 'tile-capture');
+        });
+        highlightedTiles.length = 0;
+    }
+
+    function getPawnMoves(piece) {
+        const moves = [];
+        const currentKey = coordKey(piece.q, piece.r);
+        const onStartingSquare = pawnStartingSquares[piece.color].has(currentKey);
+        const forwardDir = piece.color === 'white' ? { q: 0, r: -1 } : { q: 0, r: 1 };
+        const diagonalDirs =
+            piece.color === 'white'
+                ? [
+                      { q: 1, r: -1 },
+                      { q: -1, r: 0 }
+                  ]
+                : [
+                      { q: 1, r: 0 },
+                      { q: -1, r: 1 }
+                  ];
+
+        const oneForward = { q: piece.q + forwardDir.q, r: piece.r + forwardDir.r };
+        const oneForwardKey = coordKey(oneForward.q, oneForward.r);
+
+        if (tilePositions.has(oneForwardKey) && !boardOccupancy.has(oneForwardKey)) {
+            moves.push({ ...oneForward });
+            if (onStartingSquare && !isCenterPawnSquare(piece)) {
+                const twoForward = {
+                    q: oneForward.q + forwardDir.q,
+                    r: oneForward.r + forwardDir.r
+                };
+                const twoForwardKey = coordKey(twoForward.q, twoForward.r);
+                if (tilePositions.has(twoForwardKey) && !boardOccupancy.has(twoForwardKey)) {
+                    moves.push({ ...twoForward });
+                }
+            }
+        }
+
+        diagonalDirs.forEach(dir => {
+            const target = { q: piece.q + dir.q, r: piece.r + dir.r };
+            const targetKey = coordKey(target.q, target.r);
+            if (!tilePositions.has(targetKey)) {
+                return;
+            }
+            const occupantId = boardOccupancy.get(targetKey);
+            if (!occupantId) {
+                return;
+            }
+            const occupant = piecesById.get(occupantId);
+            if (occupant && occupant.color !== piece.color && !occupant.isCaptured) {
+                moves.push({ ...target, captureId: occupantId });
+            }
+        });
+
+        return moves;
+    }
+
+    function isCenterPawnSquare(piece) {
+        const key = coordKey(piece.q, piece.r);
+        return (
+            piece.type === 'pawn' &&
+            ((piece.color === 'white' && key === coordKey(0, 2)) ||
+                (piece.color === 'black' && key === coordKey(0, -2)))
+        );
+    }
+
+    function moveSelectedPieceTo(move) {
+        const piece = piecesById.get(selectedPieceId ?? '');
+        if (!piece) {
+            return;
+        }
+        const fromKey = coordKey(piece.q, piece.r);
+        boardOccupancy.delete(fromKey);
+
+        if (move.captureId) {
+            capturePiece(move.captureId);
+        }
+
+        piece.q = move.q;
+        piece.r = move.r;
+        piece.hasMoved = true;
+        const destinationKey = coordKey(piece.q, piece.r);
+        boardOccupancy.set(destinationKey, piece.id);
+        updatePiecePosition(piece);
+        clearSelection();
+    }
+
+    function capturePiece(targetId) {
+        const target = piecesById.get(targetId);
+        if (!target || target.isCaptured) {
+            return;
+        }
+        const targetKey = coordKey(target.q, target.r);
+        boardOccupancy.delete(targetKey);
+        target.isCaptured = true;
+        if (target.element?.parentNode) {
+            target.element.parentNode.removeChild(target.element);
+        }
+    }
+
+    function updatePiecePosition(piece) {
+        if (!piece.element) {
+            return;
+        }
+        const position = tilePositions.get(coordKey(piece.q, piece.r));
+        if (!position) {
+            return;
+        }
+        piece.element.style.left = `${position.centerX - pieceSize / 2}px`;
+        piece.element.style.top = `${position.centerY - pieceSize / 2}px`;
     }
 
     function renderLabels(tilesArray) {
@@ -268,20 +497,96 @@
     }
 
     function buildInitialPieces() {
+        resetPawnStartingSquares();
         const placements = [];
 
         STARTING_GROUPS.forEach(group => {
             group.coords.forEach(({ q, r }) => {
                 placements.push({ q, r, type: group.type, color: 'white' });
+                if (group.type === 'pawn') {
+                    pawnStartingSquares.white.add(coordKey(q, r));
+                }
             });
         });
 
         STARTING_GROUPS.forEach(group => {
             group.coords.forEach(({ q, r }) => {
-                placements.push({ q: -q, r: -r, type: group.type, color: 'black' });
+                const mirrored = { q: -q, r: -r };
+                placements.push({ ...mirrored, type: group.type, color: 'black' });
+                if (group.type === 'pawn') {
+                    pawnStartingSquares.black.add(coordKey(mirrored.q, mirrored.r));
+                }
             });
         });
 
         return placements;
+    }
+
+    function buildGameControls() {
+        const controls = document.createElement('div');
+        controls.id = 'game-controls';
+
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.id = 'new-game-button';
+        button.className = 'control-button';
+        button.textContent = 'New Game';
+        button.addEventListener('click', handleNewGameClick);
+
+        const select = document.createElement('select');
+        select.id = 'new-game-select';
+        select.name = 'new-game';
+        select.className = 'control-select';
+
+        const option = document.createElement('option');
+        option.value = 'local';
+        option.textContent = 'Local Game';
+        select.appendChild(option);
+
+        select.addEventListener('click', handleNewGameSelection);
+        select.addEventListener('change', handleNewGameSelection);
+
+        controls.appendChild(button);
+        controls.appendChild(select);
+        return controls;
+    }
+
+    function handleNewGameClick() {
+        const select = document.getElementById('new-game-select');
+        const mode = select?.value ?? 'local';
+        startNewGame(mode);
+    }
+
+    function handleNewGameSelection(event) {
+        startNewGame(event.target.value);
+    }
+
+    function startNewGame(mode) {
+        if (mode === 'local') {
+            resetBoard();
+        }
+    }
+
+    function resetPawnStartingSquares() {
+        pawnStartingSquares.white.clear();
+        pawnStartingSquares.black.clear();
+    }
+
+    function swapBlackRoyalPositions(pieces) {
+        const blackKing = pieces.find(piece => piece.color === 'black' && piece.type === 'king');
+        const blackQueen = pieces.find(piece => piece.color === 'black' && piece.type === 'queen');
+        if (!blackKing || !blackQueen) {
+            return;
+        }
+        const kingQ = blackKing.q;
+        const kingR = blackKing.r;
+        blackKing.q = blackQueen.q;
+        blackKing.r = blackQueen.r;
+        blackQueen.q = kingQ;
+        blackQueen.r = kingR;
+        [blackKing, blackQueen].forEach(piece => {
+            piece.initialQ = piece.q;
+            piece.initialR = piece.r;
+        });
     }
 })();

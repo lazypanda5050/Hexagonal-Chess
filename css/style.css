@@ -27,6 +27,43 @@ body {
     padding: 3rem 1.5rem;
 }
 
+#game-layout {
+    display: flex;
+    align-items: flex-start;
+    gap: 1.5rem;
+}
+
+#game-controls {
+    background: #ffffff;
+    border-radius: 16px;
+    border: 2px solid rgba(0, 0, 0, 0.08);
+    padding: 0.75rem 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.control-button {
+    border: none;
+    border-radius: 999px;
+    background: #3c55c8;
+    color: #ffffff;
+    font-weight: 600;
+    font-size: 0.95rem;
+    padding: 0.45rem 1.2rem;
+    cursor: pointer;
+    transition: transform 120ms ease;
+}
+
+.control-select {
+    padding: 0.4rem 0.75rem;
+    border-radius: 8px;
+    border: 1px solid rgba(0, 0, 0, 0.2);
+    font-size: 0.95rem;
+    background: #f4f7ff;
+    color: #111216;
+}
+
 #board-container {
     background: #ffffff;
     border-radius: 24px;
@@ -52,7 +89,7 @@ body {
     height: var(--hex-height);
     clip-path: polygon(25% 0%, 75% 0%, 100% 50%, 75% 100%, 25% 100%, 0% 50%);
     user-select: none;
-    transition: transform 180ms ease, box-shadow 180ms ease;
+    transition: transform 180ms ease;
 }
 
 .hex-tile.color-0 {
@@ -65,6 +102,12 @@ body {
 
 .hex-tile.color-2 {
     background: var(--color-rust);
+}
+
+.hex-tile.tile-selected,
+.hex-tile.tile-move,
+.hex-tile.tile-capture {
+    background: #a6f5a8;
 }
 
 .board-label {
