@@ -308,6 +308,8 @@
                 return getRookMoves(piece);
             case 'queen':
                 return getQueenMoves(piece);
+            case 'king':
+                return getKingMoves(piece);
             case 'bishop':
                 return getBishopMoves(piece);
             default:
@@ -444,6 +446,48 @@
                         moves.push({ ...target, captureId: occupantId });
                     }
                     break;
+                }
+            }
+        });
+
+        return moves;
+    }
+
+    function getKingMoves(piece) {
+        const moves = [];
+        const directions = [
+            { q: 1, r: 0 },   // straight directions
+            { q: -1, r: 0 },
+            { q: 0, r: 1 },
+            { q: 0, r: -1 },
+            { q: 1, r: -1 },
+            { q: -1, r: 1 },
+            { q: 2, r: -1 },  // diagonal directions
+            { q: -2, r: 1 },
+            { q: 1, r: 1 },
+            { q: -1, r: -1 },
+            { q: 1, r: -2 },
+            { q: -1, r: 2 }
+        ];
+
+        directions.forEach(dir => {
+            const target = {
+                q: piece.q + dir.q,
+                r: piece.r + dir.r
+            };
+            const targetKey = coordKey(target.q, target.r);
+            
+            if (!tilePositions.has(targetKey)) {
+                return;
+            }
+            
+            const occupantId = boardOccupancy.get(targetKey);
+            if (!occupantId) {
+                moves.push({ ...target });
+            } else {
+                const occupant = piecesById.get(occupantId);
+                if (occupant && occupant.color !== piece.color && !occupant.isCaptured) {
+                    moves.push({ ...target, captureId: occupantId });
                 }
             }
         });
