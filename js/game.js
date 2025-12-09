@@ -93,6 +93,15 @@
         }
     ];
 
+    const BISHOP_DIRECTIONS = [
+        { q: 1, r: 1 },
+        { q: -1, r: -1 },
+        { q: 2, r: -1 },
+        { q: -2, r: 1 },
+        { q: 1, r: -2 },
+        { q: -1, r: 2 }
+    ];
+
     const board = document.createElement('div');
     board.id = 'board';
 
@@ -236,7 +245,12 @@
             return;
         }
         const piece = piecesById.get(occupantId);
-        if (!piece || piece.isCaptured || (piece.type !== 'pawn' && piece.type !== 'rook')) {
+        if (!piece || piece.isCaptured) {
+            clearSelection();
+            return;
+        }
+        const moves = getMovesForPiece(piece);
+        if (moves.length === 0) {
             clearSelection();
             return;
         }
@@ -244,12 +258,12 @@
             clearSelection();
             return;
         }
-        selectPiece(piece);
+        selectPiece(piece, moves);
     }
 
-    function selectPiece(piece) {
+    function selectPiece(piece, precomputedMoves) {
         selectedPieceId = piece.id;
-        availableMoves = piece.type === 'pawn' ? getPawnMoves(piece) : getRookMoves(piece);
+        availableMoves = precomputedMoves ?? getMovesForPiece(piece);
         highlightSelection(piece, availableMoves);
     }
 
@@ -284,6 +298,17 @@
             tileEl.classList.remove('tile-selected', 'tile-move', 'tile-capture');
         });
         highlightedTiles.length = 0;
+    }
+
+    function getMovesForPiece(piece) {
+        switch (piece.type) {
+            case 'pawn':
+                return getPawnMoves(piece);
+            case 'bishop':
+                return getBishopMoves(piece);
+            default:
+                return [];
+        }
     }
 
     function getPawnMoves(piece) {
@@ -374,6 +399,30 @@
             }
         });
 
+        return moves;
+    }
+
+    function getBishopMoves(piece) {
+        const moves = [];
+        BISHOP_DIRECTIONS.forEach(direction => {
+            let q = piece.q + direction.q;
+            let r = piece.r + direction.r;
+            while (tilePositions.has(coordKey(q, r))) {
+                const key = coordKey(q, r);
+                const occupantId = boardOccupancy.get(key);
+                if (!occupantId) {
+                    moves.push({ q, r });
+                } else {
+                    const occupant = piecesById.get(occupantId);
+                    if (occupant && occupant.color !== piece.color && !occupant.isCaptured) {
+                        moves.push({ q, r, captureId: occupantId });
+                    }
+                    break;
+                }
+                q += direction.q;
+                r += direction.r;
+            }
+        });
         return moves;
     }
 
