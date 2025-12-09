@@ -1,10 +1,10 @@
 :root {
-    --hex-size: 46px;
+    --hex-size: 32px;
     --hex-height: calc(var(--hex-size) * 1.7320508076);
     --board-shadow: 0 30px 60px rgba(0, 0, 0, 0.4);
-    --color-dark: #111216;
-    --color-light: #f5f5f5;
-    --color-mid: #8c8c8c;
+    --color-amber: #E8AB6F;
+    --color-lightwood: #FFCE9E;
+    --color-rust: #D18B47;
 }
 
 * {
@@ -33,12 +33,21 @@ body {
     border-radius: 24px;
     border: 4px solid #ffffff;
     box-shadow: 0 20px 55px rgba(0, 0, 0, 0.25);
-    padding: 2.5rem;
+    padding: 2.25rem;
 }
 
 #board {
     position: relative;
     filter: drop-shadow(var(--board-shadow));
+    overflow: visible;
+}
+
+.piece {
+    position: absolute;
+    pointer-events: none;
+    user-select: none;
+    object-fit: contain;
+    filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.35));
 }
 
 .hex-tile {
@@ -46,36 +55,36 @@ body {
     width: calc(var(--hex-size) * 2);
     height: var(--hex-height);
     clip-path: polygon(25% 0%, 75% 0%, 100% 50%, 75% 100%, 25% 100%, 0% 50%);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 0.85rem;
-    font-weight: 600;
-    letter-spacing: 0.05em;
     user-select: none;
     transition: transform 180ms ease, box-shadow 180ms ease;
 }
 
-.hex-tile::after {
-    content: attr(data-coord);
-}
-
 .hex-tile.color-0 {
-    background: var(--color-dark);
-    color: #f1f1f1;
+    background: var(--color-amber);
 }
 
 .hex-tile.color-1 {
-    background: var(--color-light);
-    color: #111216;
+    background: var(--color-lightwood);
 }
 
 .hex-tile.color-2 {
-    background: var(--color-mid);
-    color: #111216;
+    background: var(--color-rust);
 }
 
-.hex-tile:hover {
-    transform: translateY(-3px);
-    box-shadow: 0 10px 20px rgba(0, 0, 0, 0.35);
+.board-label {
+    position: absolute;
+    font-size: 0.85rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    pointer-events: none;
+    user-select: none;
+    letter-spacing: 0.05em;
+}
+
+.board-label-letter {
+    color: #1f3d8f;
+}
+
+.board-label-number {
+    color: #8f2a1f;
 }

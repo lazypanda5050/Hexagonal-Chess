@@ -35,8 +35,8 @@ A fully functional hexagonal chess web app built with pure JavaScript, featuring
 
 ### Special Rules
 - **Castling**: Modified for hexagonal board
-  - Kingside: King replaces rook's position, rook moves left
-  - Queenside: King replaces knight's position, rook moves right
+  - Kingside: King replaces rook's position, rook to left of king
+  - Queenside: King replaces knight's position, rook to right of king
 - **En Passant**: Not available (removed due to center pawn rule)
 - **Check/Checkmate**: Standard chess rules apply
 
