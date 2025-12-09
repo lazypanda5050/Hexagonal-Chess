@@ -306,6 +306,8 @@
                 return getPawnMoves(piece);
             case 'bishop':
                 return getBishopMoves(piece);
+            case 'rook':
+                return getRookMoves(piece);
             default:
                 return [];
         }
