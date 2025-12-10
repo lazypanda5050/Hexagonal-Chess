@@ -420,78 +420,21 @@
 
     function getQueenMoves(piece) {
         const moves = [];
-        const directions = [
-            { q: 1, r: 0 },   // rook directions
-            { q: -1, r: 0 },
-            { q: 0, r: 1 },
-            { q: 0, r: -1 },
-            { q: 1, r: -1 },
-            { q: -1, r: 1 },
-            { q: 2, r: -1 },  // bishop directions
-            { q: -2, r: 1 },
-            { q: 1, r: 1 },
-            { q: -1, r: -1 },
-            { q: 2, r: -1 },
-            { q: -2, r: 1 }
-        ];
+        // Queen moves are the union of rook (straight) and bishop (diagonal) directions.
+        const directions = [...STRAIGHT_DIRECTIONS, ...BISHOP_DIRECTIONS];
 
         directions.forEach(dir => {
-            for (let i = 1; i <= BOARD_RADIUS; i++) {
+            for (let i = 1; i <= BOARD_RADIUS; i += 1) {
                 const target = {
                     q: piece.q + dir.q * i,
                     r: piece.r + dir.r * i
                 };
                 const targetKey = coordKey(target.q, target.r);
-                
+
                 if (!tilePositions.has(targetKey)) {
                     break;
                 }
-                
-                const occupantId = boardOccupancy.get(targetKey);
-                if (!occupantId) {
-                    moves.push({ ...target });
-                } else {
-                    const occupant = piecesById.get(occupantId);
-                    if (occupant && occupant.color !== piece.color && !occupant.isCaptured) {
-                        moves.push({ ...target, captureId: occupantId });
-                    }
-                    break;
-                }
-            }
-        });
 
-        return moves;
-    }
-
-    function getQueenMoves(piece) {
-        const moves = [];
-        const directions = [
-            { q: 1, r: 0 },   // rook directions
-            { q: -1, r: 0 },
-            { q: 0, r: 1 },
-            { q: 0, r: -1 },
-            { q: 1, r: -1 },
-            { q: -1, r: 1 },
-            { q: 2, r: -1 },  // bishop directions
-            { q: -2, r: 1 },
-            { q: 1, r: 1 },
-            { q: -1, r: -1 },
-            { q: 2, r: -1 },
-            { q: -2, r: 1 }
-        ];
-
-        directions.forEach(dir => {
-            for (let i = 1; i <= BOARD_RADIUS; i++) {
-                const target = {
-                    q: piece.q + dir.q * i,
-                    r: piece.r + dir.r * i
-                };
-                const targetKey = coordKey(target.q, target.r);
-                
-                if (!tilePositions.has(targetKey)) {
-                    break;
-                }
-                
                 const occupantId = boardOccupancy.get(targetKey);
                 if (!occupantId) {
                     moves.push({ ...target });
@@ -547,45 +490,105 @@
             }
         });
 
-        // Kingside castling: per-color explicit coordinates.
-        // White: if H3 is empty, move king to I4 and rook from I4 to H3.
-        // Black: if H11 is empty, move king to I11 and rook from I11 to H11.
+        // Castling: kingside and queenside, with explicit per-color coordinates.
+        // Kingside (already implemented before):
+        //   White: if H3 is empty, move king to I4 and rook from I4 to H3.
+        //   Black: if H11 is empty, move king to I11 and rook from I11 to H11.
+        // Queenside:
+        //   White: no pieces on F1, E1, D1; move king to D1, rook from C1 to E1.
+        //   Black: no pieces on F11, E10, D9; move king to D9, rook from C11 to E10.
         if (!piece.hasMoved && !piece.isCaptured) {
             const isWhite = piece.color === 'white';
 
-            const kingStart = isWhite ? { q: 1, r: 4 } : { q: 1, r: -5 };
-            const rookStart = isWhite ? { q: 3, r: 2 } : { q: 3, r: -5 };
-            const throughSquare = isWhite ? { q: 2, r: 3 } : { q: 2, r: -5 }; // H3 / H11
-            const kingDestination = rookStart; // I4 / I11
-            const rookDestination = throughSquare; // H3 / H11
+            // Kingside castling
+            {
+                const kingStart = isWhite ? { q: 1, r: 4 } : { q: 1, r: -5 };
+                const rookStart = isWhite ? { q: 3, r: 2 } : { q: 3, r: -5 };
+                const throughSquare = isWhite ? { q: 2, r: 3 } : { q: 2, r: -5 }; // H3 / H11
+                const kingDestination = rookStart; // I4 / I11
+                const rookDestination = throughSquare; // H3 / H11
 
-            // King must be on its original kingside-castling square
-            if (piece.q === kingStart.q && piece.r === kingStart.r) {
-                const throughKey = coordKey(throughSquare.q, throughSquare.r);
-                const rookStartKey = coordKey(rookStart.q, rookStart.r);
+                // King must be on its original kingside-castling square
+                if (piece.q === kingStart.q && piece.r === kingStart.r) {
+                    const throughKey = coordKey(throughSquare.q, throughSquare.r);
+                    const rookStartKey = coordKey(rookStart.q, rookStart.r);
 
-                // H3 / H11 must be empty
-                if (tilePositions.has(throughKey) && !boardOccupancy.has(throughKey)) {
-                    const rookId = boardOccupancy.get(rookStartKey);
-                    const rook = rookId ? piecesById.get(rookId) : null;
+                    // H3 / H11 must be empty
+                    if (tilePositions.has(throughKey) && !boardOccupancy.has(throughKey)) {
+                        const rookId = boardOccupancy.get(rookStartKey);
+                        const rook = rookId ? piecesById.get(rookId) : null;
 
-                    if (
-                        rook &&
-                        rook.type === 'rook' &&
-                        rook.color === piece.color &&
-                        !rook.isCaptured &&
-                        !rook.hasMoved
-                    ) {
-                        moves.push({
-                            q: kingDestination.q,
-                            r: kingDestination.r,
-                            castle: {
-                                type: 'kingside',
-                                rookId: rook.id,
-                                rookToQ: rookDestination.q,
-                                rookToR: rookDestination.r
-                            }
-                        });
+                        if (
+                            rook &&
+                            rook.type === 'rook' &&
+                            rook.color === piece.color &&
+                            !rook.isCaptured &&
+                            !rook.hasMoved
+                        ) {
+                            moves.push({
+                                q: kingDestination.q,
+                                r: kingDestination.r,
+                                castle: {
+                                    type: 'kingside',
+                                    rookId: rook.id,
+                                    rookToQ: rookDestination.q,
+                                    rookToR: rookDestination.r
+                                }
+                            });
+                        }
+                    }
+                }
+            }
+
+            // Queenside castling
+            {
+                const kingStart = isWhite ? { q: 1, r: 4 } : { q: 1, r: -5 };
+
+                // King must be on its original starting square
+                if (piece.q === kingStart.q && piece.r === kingStart.r) {
+                    // Explicit starting squares for queenside pieces, in axial coordinates.
+                    const queenSideRookStart = isWhite ? { q: -3, r: 5 } : { q: -3, r: -2 }; // C1 / C11
+                    const queenSideKnightStart = isWhite ? { q: -2, r: 5 } : { q: -2, r: -3 }; // D1 / D9
+                    const queenStart = isWhite ? { q: -1, r: 5 } : { q: -1, r: -4 }; // E1 / E10
+                    const bishopStart = isWhite ? { q: 0, r: 5 } : { q: 0, r: -5 }; // F1 / F11
+
+                    // All three intermediary squares (F-file bishop, E-file queen, D-file knight)
+                    // must currently be empty to allow queenside castling.
+                    const blockingSquaresEmpty = [bishopStart, queenStart, queenSideKnightStart].every(
+                        square => {
+                            const key = coordKey(square.q, square.r);
+                            return tilePositions.has(key) && !boardOccupancy.has(key);
+                        }
+                    );
+
+                    if (blockingSquaresEmpty) {
+                        const rookStartKey = coordKey(queenSideRookStart.q, queenSideRookStart.r);
+                        const rookId = boardOccupancy.get(rookStartKey);
+                        const rook = rookId ? piecesById.get(rookId) : null;
+
+                        if (
+                            rook &&
+                            rook.type === 'rook' &&
+                            rook.color === piece.color &&
+                            !rook.isCaptured &&
+                            !rook.hasMoved
+                        ) {
+                            const kingDestinationQ = queenSideKnightStart.q;
+                            const kingDestinationR = queenSideKnightStart.r;
+                            const rookDestinationQ = queenStart.q;
+                            const rookDestinationR = queenStart.r;
+
+                            moves.push({
+                                q: kingDestinationQ,
+                                r: kingDestinationR,
+                                castle: {
+                                    type: 'queenside',
+                                    rookId: rook.id,
+                                    rookToQ: rookDestinationQ,
+                                    rookToR: rookDestinationR
+                                }
+                            });
+                        }
                     }
                 }
             }
@@ -767,7 +770,7 @@
             capturePiece(move.captureId);
         }
 
-        if (move.castle && move.castle.type === 'kingside') {
+        if (move.castle) {
             const rook = piecesById.get(move.castle.rookId ?? '');
             if (rook && !rook.isCaptured) {
                 const rookFromKey = coordKey(rook.q, rook.r);
