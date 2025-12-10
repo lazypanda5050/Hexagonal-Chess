@@ -22,10 +22,14 @@
         white: new Set(),
         black: new Set()
     };
+    let isBoardFlipped = false;
+    let pendingFlipTimeoutId = null;
+    let currentTurn = 'white';
     let pieceIdCounter = 0;
     let selectedPieceId = null;
     let availableMoves = [];
     const highlightedTiles = [];
+    const lastMoveTiles = [];
 
     const PIECE_SPRITES = {
         white: {
@@ -131,7 +135,7 @@
 
     appRoot.appendChild(layout);
 
-    resetBoard();
+    initEmptyBoard();
 
     function buildTiles() {
         const result = [];
@@ -207,14 +211,19 @@
         });
     }
 
-    function resetBoard() {
+    function initEmptyBoard() {
         clearSelection();
+        clearLastMoveHighlight();
         board.querySelectorAll('.piece').forEach(pieceElement => {
             pieceElement.parentNode?.removeChild(pieceElement);
         });
         piecesById.clear();
         boardOccupancy.clear();
         pieceIdCounter = 0;
+    }
+
+    function resetBoard() {
+        initEmptyBoard();
         const freshPieces = createInitialPieces();
         placePieces(freshPieces);
     }
@@ -229,7 +238,6 @@
             element: null,
             isCaptured: false
         }));
-        swapBlackRoyalPositions(basePieces);
         return basePieces;
     }
 
@@ -239,6 +247,7 @@
             boardOccupancy.set(coordKey(piece.q, piece.r), piece.id);
         });
         renderPieces(pieces);
+    
     }
 
     function handleTileClick(q, r) {
@@ -255,6 +264,10 @@
         }
         const piece = piecesById.get(occupantId);
         if (!piece || piece.isCaptured) {
+            clearSelection();
+            return;
+        }
+        if (piece.color !== currentTurn) {
             clearSelection();
             return;
         }
@@ -518,11 +531,11 @@
                 r: piece.r + dir.r
             };
             const targetKey = coordKey(target.q, target.r);
-            
+
             if (!tilePositions.has(targetKey)) {
                 return;
             }
-            
+
             const occupantId = boardOccupancy.get(targetKey);
             if (!occupantId) {
                 moves.push({ ...target });
@@ -533,6 +546,50 @@
                 }
             }
         });
+
+        // Kingside castling: per-color explicit coordinates.
+        // White: if H3 is empty, move king to I4 and rook from I4 to H3.
+        // Black: if H11 is empty, move king to I11 and rook from I11 to H11.
+        if (!piece.hasMoved && !piece.isCaptured) {
+            const isWhite = piece.color === 'white';
+
+            const kingStart = isWhite ? { q: 1, r: 4 } : { q: 1, r: -5 };
+            const rookStart = isWhite ? { q: 3, r: 2 } : { q: 3, r: -5 };
+            const throughSquare = isWhite ? { q: 2, r: 3 } : { q: 2, r: -5 }; // H3 / H11
+            const kingDestination = rookStart; // I4 / I11
+            const rookDestination = throughSquare; // H3 / H11
+
+            // King must be on its original kingside-castling square
+            if (piece.q === kingStart.q && piece.r === kingStart.r) {
+                const throughKey = coordKey(throughSquare.q, throughSquare.r);
+                const rookStartKey = coordKey(rookStart.q, rookStart.r);
+
+                // H3 / H11 must be empty
+                if (tilePositions.has(throughKey) && !boardOccupancy.has(throughKey)) {
+                    const rookId = boardOccupancy.get(rookStartKey);
+                    const rook = rookId ? piecesById.get(rookId) : null;
+
+                    if (
+                        rook &&
+                        rook.type === 'rook' &&
+                        rook.color === piece.color &&
+                        !rook.isCaptured &&
+                        !rook.hasMoved
+                    ) {
+                        moves.push({
+                            q: kingDestination.q,
+                            r: kingDestination.r,
+                            castle: {
+                                type: 'kingside',
+                                rookId: rook.id,
+                                rookToQ: rookDestination.q,
+                                rookToR: rookDestination.r
+                            }
+                        });
+                    }
+                }
+            }
+        }
 
         return moves;
     }
@@ -582,6 +639,111 @@
         return moves;
     }
 
+    function findKingsideRook(king) {
+        // Kingside rook initial positions
+        const kingsideRookInitial = king.color === 'white'
+            ? { q: 3, r: 2 }    // White kingside rook
+            : { q: 3, r: -5 };  // Black kingside rook, mirrored across horizontal axis
+
+        let candidate = null;
+        piecesById.forEach(piece => {
+            if (
+                piece.type === 'rook' &&
+                piece.color === king.color &&
+                !piece.isCaptured &&
+                !piece.hasMoved &&
+                piece.initialQ === kingsideRookInitial.q &&
+                piece.initialR === kingsideRookInitial.r
+            ) {
+                candidate = piece;
+            }
+        });
+        return candidate;
+    }
+
+    function isPathClearExclusive(fromQ, fromR, toQ, toR) {
+        const direction = findLineDirection(fromQ, fromR, toQ, toR);
+        if (!direction) {
+            return false;
+        }
+        let q = fromQ + direction.q;
+        let r = fromR + direction.r;
+        while (q !== toQ || r !== toR) {
+            const key = coordKey(q, r);
+            if (boardOccupancy.has(key)) {
+                return false;
+            }
+            q += direction.q;
+            r += direction.r;
+        }
+        return true;
+    }
+
+    function findLineDirection(fromQ, fromR, toQ, toR) {
+        const candidates = [...STRAIGHT_DIRECTIONS, ...BISHOP_DIRECTIONS];
+        for (const dir of candidates) {
+            let q = fromQ;
+            let r = fromR;
+            for (let i = 0; i <= BOARD_RADIUS; i += 1) {
+                q += dir.q;
+                r += dir.r;
+                if (q === toQ && r === toR) {
+                    return dir;
+                }
+                if (!tilePositions.has(coordKey(q, r))) {
+                    break;
+                }
+            }
+        }
+        return null;
+    }
+
+    function computeKingsideRookDestination(rookQ, rookR, kingColor) {
+        const kingDestKey = coordKey(rookQ, rookR);
+        const kingPosition = tilePositions.get(kingDestKey);
+        if (!kingPosition) {
+            return null;
+        }
+
+        let bestTile = null;
+
+        if (kingColor === 'white') {
+            // From white's perspective, the rook should end up to the RIGHT of the king.
+            // On screen, that means a hex with strictly HIGHER centerX than the king's.
+            let bestCenterX = Number.NEGATIVE_INFINITY;
+            STRAIGHT_DIRECTIONS.forEach(dir => {
+                const candidate = { q: rookQ + dir.q, r: rookR + dir.r };
+                const candidateKey = coordKey(candidate.q, candidate.r);
+                const position = tilePositions.get(candidateKey);
+                if (!position) {
+                    return;
+                }
+                if (position.centerX > kingPosition.centerX && position.centerX > bestCenterX) {
+                    bestCenterX = position.centerX;
+                    bestTile = candidate;
+                }
+            });
+        } else {
+            // From black's perspective (board flipped), the rook should end up to the LEFT of the king.
+            // On screen after flipping, that corresponds to a hex with strictly LOWER centerX.
+            let bestCenterX = Number.POSITIVE_INFINITY;
+            STRAIGHT_DIRECTIONS.forEach(dir => {
+                const candidate = { q: rookQ + dir.q, r: rookR + dir.r };
+                const candidateKey = coordKey(candidate.q, candidate.r);
+                const position = tilePositions.get(candidateKey);
+                if (!position) {
+                    return;
+                }
+                if (position.centerX < kingPosition.centerX && position.centerX < bestCenterX) {
+                    bestCenterX = position.centerX;
+                    bestTile = candidate;
+                }
+            });
+        }
+
+        return bestTile;
+    }
+
     function isCenterPawnSquare(piece) {
         const key = coordKey(piece.q, piece.r);
         return (
@@ -596,11 +758,27 @@
         if (!piece) {
             return;
         }
+        const fromQ = piece.q;
+        const fromR = piece.r;
         const fromKey = coordKey(piece.q, piece.r);
         boardOccupancy.delete(fromKey);
 
         if (move.captureId) {
             capturePiece(move.captureId);
+        }
+
+        if (move.castle && move.castle.type === 'kingside') {
+            const rook = piecesById.get(move.castle.rookId ?? '');
+            if (rook && !rook.isCaptured) {
+                const rookFromKey = coordKey(rook.q, rook.r);
+                boardOccupancy.delete(rookFromKey);
+                rook.q = move.castle.rookToQ;
+                rook.r = move.castle.rookToR;
+                rook.hasMoved = true;
+                const rookDestinationKey = coordKey(rook.q, rook.r);
+                boardOccupancy.set(rookDestinationKey, rook.id);
+                updatePiecePosition(rook);
+            }
         }
 
         piece.q = move.q;
@@ -609,7 +787,29 @@
         const destinationKey = coordKey(piece.q, piece.r);
         boardOccupancy.set(destinationKey, piece.id);
         updatePiecePosition(piece);
+        highlightLastMove(fromQ, fromR, piece.q, piece.r);
         clearSelection();
+        endTurn(piece);
+    }
+
+    function highlightLastMove(fromQ, fromR, toQ, toR) {
+        clearLastMoveHighlight();
+        const fromTile = tileElements.get(coordKey(fromQ, fromR));
+        const toTile = tileElements.get(coordKey(toQ, toR));
+        [fromTile, toTile].forEach(tileEl => {
+            if (!tileEl) {
+                return;
+            }
+            tileEl.classList.add('tile-last-move');
+            lastMoveTiles.push(tileEl);
+        });
+    }
+
+    function clearLastMoveHighlight() {
+        lastMoveTiles.forEach(tileEl => {
+            tileEl.classList.remove('tile-last-move');
+        });
+        lastMoveTiles.length = 0;
     }
 
     function capturePiece(targetId) {
@@ -640,6 +840,11 @@
     function renderLabels(tilesArray) {
         const letterEntries = buildLetterLabelEntries(tilesArray);
         letterEntries.slice(0, 11).forEach((entry, index) => {
+            // Letters A–K; shift G–K slightly left for better visual alignment
+            if (index >= 6) {
+                entry.offset = entry.offset ?? { x: 0, y: 0 };
+                entry.offset.x -= hexSize * 0.3;
+            }
             const labelElement = document.createElement('div');
             labelElement.className = 'board-label board-label-letter';
             labelElement.textContent = String.fromCharCode(65 + index);
@@ -755,7 +960,9 @@
 
         STARTING_GROUPS.forEach(group => {
             group.coords.forEach(({ q, r }) => {
-                const mirrored = { q: -q, r: -r };
+                // Mirror only across the horizontal axis for black pieces in axial coords:
+                // (q, r) -> (q, -q - r)
+                const mirrored = { q, r: -q - r };
                 placements.push({ ...mirrored, type: group.type, color: 'black' });
                 if (group.type === 'pawn') {
                     pawnStartingSquares.black.add(coordKey(mirrored.q, mirrored.r));
@@ -770,12 +977,22 @@
         const controls = document.createElement('div');
         controls.id = 'game-controls';
 
-        const button = document.createElement('button');
-        button.type = 'button';
-        button.id = 'new-game-button';
-        button.className = 'control-button';
-        button.textContent = 'New Game';
-        button.addEventListener('click', handleNewGameClick);
+        const topRow = document.createElement('div');
+        topRow.className = 'game-controls-row';
+
+        const newGameButton = document.createElement('button');
+        newGameButton.type = 'button';
+        newGameButton.id = 'new-game-button';
+        newGameButton.className = 'control-button';
+        newGameButton.textContent = 'New Game';
+        newGameButton.addEventListener('click', handleNewGameClick);
+
+        const flipButton = document.createElement('button');
+        flipButton.type = 'button';
+        flipButton.id = 'flip-board-button';
+        flipButton.className = 'control-button';
+        flipButton.textContent = 'Flip Board';
+        flipButton.addEventListener('click', handleFlipBoardClick);
 
         const select = document.createElement('select');
         select.id = 'new-game-select';
@@ -790,8 +1007,11 @@
         select.addEventListener('click', handleNewGameSelection);
         select.addEventListener('change', handleNewGameSelection);
 
-        controls.appendChild(button);
-        controls.appendChild(select);
+        topRow.appendChild(newGameButton);
+        topRow.appendChild(select);
+
+        controls.appendChild(topRow);
+        controls.appendChild(flipButton);
         return controls;
     }
 
@@ -805,10 +1025,43 @@
         startNewGame(event.target.value);
     }
 
+    function handleFlipBoardClick() {
+        flipBoard();
+    }
+
     function startNewGame(mode) {
         if (mode === 'local') {
+            if (pendingFlipTimeoutId !== null) {
+                clearTimeout(pendingFlipTimeoutId);
+                pendingFlipTimeoutId = null;
+            }
+            currentTurn = 'white';
+            applyBoardOrientationForCurrentTurn();
             resetBoard();
         }
+    }
+
+    function flipBoard() {
+        isBoardFlipped = !isBoardFlipped;
+        boardContainer.classList.toggle('board-flipped', isBoardFlipped);
+    }
+
+    function applyBoardOrientationForCurrentTurn() {
+        const isBlackTurn = currentTurn === 'black';
+        isBoardFlipped = isBlackTurn;
+        boardContainer.classList.toggle('board-flipped', isBoardFlipped);
+        boardContainer.classList.toggle('board-turn-black', isBlackTurn);
+    }
+
+    function endTurn(piece) {
+        currentTurn = piece.color === 'white' ? 'black' : 'white';
+        if (pendingFlipTimeoutId !== null) {
+            clearTimeout(pendingFlipTimeoutId);
+        }
+        pendingFlipTimeoutId = window.setTimeout(() => {
+            applyBoardOrientationForCurrentTurn();
+            pendingFlipTimeoutId = null;
+        }, 676);
     }
 
     function resetPawnStartingSquares() {
@@ -816,23 +1069,6 @@
         pawnStartingSquares.black.clear();
     }
 
-    function swapBlackRoyalPositions(pieces) {
-        const blackKing = pieces.find(piece => piece.color === 'black' && piece.type === 'king');
-        const blackQueen = pieces.find(piece => piece.color === 'black' && piece.type === 'queen');
-        if (!blackKing || !blackQueen) {
-            return;
-        }
-        const kingQ = blackKing.q;
-        const kingR = blackKing.r;
-        blackKing.q = blackQueen.q;
-        blackKing.r = blackQueen.r;
-        blackQueen.q = kingQ;
-        blackQueen.r = kingR;
-        [blackKing, blackQueen].forEach(piece => {
-            piece.initialQ = piece.q;
-            piece.initialR = piece.r;
-        });
-    }
 
     function buildKnightOffsets() {
         const offsets = [];

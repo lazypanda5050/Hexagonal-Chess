@@ -43,6 +43,12 @@ body {
     gap: 0.75rem;
 }
 
+.game-controls-row {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+}
+
 .control-button {
     border: none;
     border-radius: 999px;
@@ -69,11 +75,18 @@ body {
     border-radius: 24px;
     border: 4px solid #ffffff;
     padding: 2.25rem;
+    transition: background-color 220ms ease;
+}
+
+#board-container.board-turn-black {
+    background: #000000;
 }
 
 #board {
     position: relative;
     overflow: visible;
+    transform-origin: center;
+    transition: transform 220ms ease;
 }
 
 .piece {
@@ -81,6 +94,7 @@ body {
     pointer-events: none;
     user-select: none;
     object-fit: contain;
+    transition: left 220ms ease-out, top 220ms ease-out;
 }
 
 .hex-tile {
@@ -110,7 +124,11 @@ body {
 }
 
 .hex-tile.tile-capture {
-    background: #f5a6a6;
+    background: #f5a6a6 !important;
+}
+
+.hex-tile.tile-last-move {
+    background: #0b6020
 }
 
 .board-label {
@@ -125,8 +143,27 @@ body {
 
 .board-label-letter {
     color: #1f3d8f;
+    transition: color 220ms ease;
 }
 
 .board-label-number {
     color: #8f2a1f;
+    transition: color 220ms ease;
+}
+
+#board-container.board-turn-black .board-label-letter {
+    color: #6b9dff;
+}
+
+#board-container.board-turn-black .board-label-number {
+    color: #ff6b5e;
+}
+
+#board-container.board-flipped #board {
+    transform: rotate(180deg);
+}
+
+#board-container.board-flipped .board-label,
+#board-container.board-flipped .piece {
+    transform: rotate(180deg);
 }
