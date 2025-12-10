@@ -31,6 +31,7 @@ body {
     display: flex;
     align-items: flex-start;
     gap: 1.5rem;
+    justify-content: center;
 }
 
 #game-controls {
@@ -188,4 +189,78 @@ body {
 #board-container.board-flipped .board-label,
 #board-container.board-flipped .piece {
     transform: rotate(180deg);
+}
+
+#history-sidebar {
+    background: #ffffff;
+    border-radius: 16px;
+    border: 2px solid rgba(0, 0, 0, 0.08);
+    padding: 1rem;
+    width: 280px;
+    max-height: 600px;
+    display: flex;
+    flex-direction: column;
+}
+
+.history-header {
+    font-weight: 700;
+    font-size: 1.1rem;
+    color: #111216;
+    padding-bottom: 0.75rem;
+    border-bottom: 2px solid rgba(0, 0, 0, 0.08);
+    margin-bottom: 0.75rem;
+}
+
+.moves-list {
+    flex: 1;
+    overflow-y: auto;
+    font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Roboto Mono', monospace;
+    font-size: 0.9rem;
+    line-height: 1.6;
+}
+
+.move-pair {
+    display: flex;
+    margin-bottom: 0.25rem;
+    padding: 0.25rem 0.5rem;
+    border-radius: 6px;
+    transition: background-color 120ms ease;
+}
+
+.move-pair:hover {
+    background: rgba(60, 85, 200, 0.08);
+}
+
+.move-number {
+    font-weight: 600;
+    color: #3c55c8;
+    margin-right: 0.75rem;
+    min-width: 2rem;
+}
+
+.move-white {
+    color: #111216;
+    margin-right: 0.75rem;
+    flex: 1;
+}
+
+.move-black {
+    color: #111216;
+    flex: 1;
+}
+
+.move-current {
+    background: rgba(60, 85, 200, 0.15);
+    font-weight: 600;
+}
+
+.move-notation {
+    cursor: pointer;
+    padding: 0.125rem 0.25rem;
+    border-radius: 4px;
+    transition: background-color 120ms ease;
+}
+
+.move-notation:hover {
+    background: rgba(60, 85, 200, 0.2);
 }

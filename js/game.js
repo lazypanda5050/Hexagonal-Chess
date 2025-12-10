@@ -30,6 +30,8 @@
     let availableMoves = [];
     const highlightedTiles = [];
     const lastMoveTiles = [];
+    const moveHistory = [];
+    let currentMoveNumber = 1;
 
     const PIECE_SPRITES = {
         white: {
@@ -130,8 +132,10 @@
     const layout = document.createElement('div');
     layout.id = 'game-layout';
     const controls = buildGameControls();
+    const historySidebar = buildHistorySidebar();
     layout.appendChild(boardContainer);
     layout.appendChild(controls);
+    layout.appendChild(historySidebar);
 
     appRoot.appendChild(layout);
 
@@ -763,7 +767,8 @@
         const fromKey = coordKey(piece.q, piece.r);
         boardOccupancy.delete(fromKey);
 
-        if (move.captureId) {
+        const isCapture = !!move.captureId;
+        if (isCapture) {
             capturePiece(move.captureId);
         }
 
@@ -787,6 +792,10 @@
         const destinationKey = coordKey(piece.q, piece.r);
         boardOccupancy.set(destinationKey, piece.id);
         updatePiecePosition(piece);
+        
+        const moveNotation = createMoveNotation(piece, fromQ, fromR, piece.q, piece.r, isCapture, move.castle);
+        addMoveToHistory(moveNotation, piece.color);
+        
         highlightLastMove(fromQ, fromR, piece.q, piece.r);
         clearSelection();
         endTurn(piece);
@@ -945,6 +954,70 @@
         return `${q},${r}`;
     }
 
+    function positionToNotation(q, r) {
+        const letterEntries = buildLetterLabelEntries(tiles);
+        const numberEntries = buildNumberLabelEntries(tiles);
+        
+        let file = '';
+        let rank = '';
+        
+        for (let i = 0; i < Math.min(letterEntries.length, 11); i++) {
+            if (letterEntries[i].q === q && letterEntries[i].r === r) {
+                file = String.fromCharCode(65 + i);
+                break;
+            }
+        }
+        
+        for (let i = 0; i < Math.min(numberEntries.length, 11); i++) {
+            if (numberEntries[i].q === q && numberEntries[i].r === r) {
+                rank = String(i + 1);
+                break;
+            }
+        }
+        
+        if (!file || !rank) {
+            return '';
+        }
+        
+        return file + rank;
+    }
+
+    function pieceNotation(piece) {
+        const notations = {
+            king: 'K',
+            queen: 'Q',
+            rook: 'R',
+            bishop: 'B',
+            knight: 'N',
+            pawn: ''
+        };
+        return notations[piece.type] || '';
+    }
+
+    function createMoveNotation(piece, fromQ, fromR, toQ, toR, isCapture, isCastle) {
+        if (isCastle) {
+            return isCastle.type === 'kingside' ? 'O-O' : 'O-O-O';
+        }
+        
+        const pieceSymbol = pieceNotation(piece);
+        const fromSquare = positionToNotation(fromQ, fromR);
+        const toSquare = positionToNotation(toQ, toR);
+        const captureSymbol = isCapture ? 'x' : '';
+        
+        if (piece.type === 'pawn') {
+            if (isCapture && fromSquare) {
+                return fromSquare[0] + captureSymbol + toSquare;
+            }
+            return toSquare || 'P' + (toQ + ',' + toR);
+        }
+        
+        if (!fromSquare || !toSquare) {
+            return pieceSymbol + '?';
+        }
+        
+        return pieceSymbol + fromSquare + captureSymbol + toSquare;
+    }
+
     function buildInitialPieces() {
         resetPawnStartingSquares();
         const placements = [];
@@ -1015,6 +1088,24 @@
         return controls;
     }
 
+    function buildHistorySidebar() {
+        const sidebar = document.createElement('div');
+        sidebar.id = 'history-sidebar';
+
+        const header = document.createElement('div');
+        header.className = 'history-header';
+        header.textContent = 'Moves';
+
+        const movesList = document.createElement('div');
+        movesList.id = 'moves-list';
+        movesList.className = 'moves-list';
+
+        sidebar.appendChild(header);
+        sidebar.appendChild(movesList);
+
+        return sidebar;
+    }
+
     function handleNewGameClick() {
         const select = document.getElementById('new-game-select');
         const mode = select?.value ?? 'local';
@@ -1037,6 +1128,7 @@
             }
             currentTurn = 'white';
             applyBoardOrientationForCurrentTurn();
+            clearHistory();
             resetBoard();
         }
     }
@@ -1067,6 +1159,62 @@
     function resetPawnStartingSquares() {
         pawnStartingSquares.white.clear();
         pawnStartingSquares.black.clear();
+    }
+
+    function addMoveToHistory(notation, color) {
+        moveHistory.push({
+            notation: notation,
+            color: color,
+            moveNumber: currentMoveNumber
+        });
+        
+        if (color === 'black') {
+            currentMoveNumber++;
+        }
+        
+        updateHistoryDisplay();
+    }
+
+    function updateHistoryDisplay() {
+        const movesList = document.getElementById('moves-list');
+        if (!movesList) return;
+        
+        movesList.innerHTML = '';
+        
+        for (let i = 0; i < moveHistory.length; i += 2) {
+            const movePair = document.createElement('div');
+            movePair.className = 'move-pair';
+            
+            const moveNumber = document.createElement('span');
+            moveNumber.className = 'move-number';
+            moveNumber.textContent = Math.floor(i / 2) + 1 + '.';
+            
+            const whiteMove = moveHistory[i];
+            const whiteMoveSpan = document.createElement('span');
+            whiteMoveSpan.className = 'move-white move-notation';
+            whiteMoveSpan.textContent = whiteMove.notation || '??';
+            
+            movePair.appendChild(moveNumber);
+            movePair.appendChild(whiteMoveSpan);
+            
+            if (i + 1 < moveHistory.length) {
+                const blackMove = moveHistory[i + 1];
+                const blackMoveSpan = document.createElement('span');
+                blackMoveSpan.className = 'move-black move-notation';
+                blackMoveSpan.textContent = blackMove.notation || '??';
+                movePair.appendChild(blackMoveSpan);
+            }
+            
+            movesList.appendChild(movePair);
+        }
+        
+        movesList.scrollTop = movesList.scrollHeight;
+    }
+
+    function clearHistory() {
+        moveHistory.length = 0;
+        currentMoveNumber = 1;
+        updateHistoryDisplay();
     }
 
 
