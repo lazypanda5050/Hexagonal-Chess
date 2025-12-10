@@ -99,11 +99,13 @@ body {
 
 .hex-tile {
     position: absolute;
-    width: calc(var(--hex-size) * 2);
-    height: var(--hex-height);
+    width: calc(var(--hex-size) * 2.02);
+    height: calc(var(--hex-height) * 1.02);
     clip-path: polygon(25% 0%, 75% 0%, 100% 50%, 75% 100%, 25% 100%, 0% 50%);
     user-select: none;
     transition: transform 180ms ease;
+    margin-left: calc(var(--hex-size) * -0.01);
+    margin-top: calc(var(--hex-height) * -0.01);
 }
 
 .hex-tile.color-0 {
