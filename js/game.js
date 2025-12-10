@@ -8,7 +8,7 @@
     }
 
     const rootStyles = getComputedStyle(document.documentElement);
-    const hexSize = parseFloat(rootStyles.getPropertyValue('--hex-size')) || 46;
+    const hexSize = Number.parseFloat(rootStyles.getPropertyValue('--hex-size')) || 46;
     const padding = hexSize * 1.25;
     const HEX_WIDTH = hexSize * 2;
     const HEX_HEIGHT = hexSize * SQRT3;
@@ -215,7 +215,7 @@
         clearSelection();
         clearLastMoveHighlight();
         board.querySelectorAll('.piece').forEach(pieceElement => {
-            pieceElement.parentNode?.removeChild(pieceElement);
+            pieceElement.parentNode.removeChild(pieceElement);
         });
         piecesById.clear();
         boardOccupancy.clear();
@@ -251,7 +251,11 @@
     }
 
     function handleTileClick(q, r) {
-        const move = availableMoves.find(entry => entry.q === q && entry.r === r);
+        const move = availableMoves.find(
+            entry =>
+                (entry.q === q && entry.r === r) ||
+                (entry.triggerQ === q && entry.triggerR === r)
+        );
         if (move && selectedPieceId) {
             moveSelectedPieceTo(move);
             return;
@@ -299,8 +303,18 @@
         clearHighlightedTiles();
         highlightTile(piece.q, piece.r, 'tile-selected');
         moves.forEach(move => {
-            const className = move.captureId ? 'tile-capture' : 'tile-move';
-            highlightTile(move.q, move.r, className);
+            let className;
+            const targetQ = move.triggerQ ?? move.q;
+            const targetR = move.triggerR ?? move.r;
+
+            if (move.captureId) {
+                className = 'tile-capture';
+            } else {
+                const targetKey = coordKey(targetQ, targetR);
+                const occupantId = boardOccupancy.get(targetKey);
+                className = occupantId ? 'tile-move-friendly' : 'tile-move';
+            }
+            highlightTile(targetQ, targetR, className);
         });
     }
 
@@ -317,7 +331,7 @@
 
     function clearHighlightedTiles() {
         highlightedTiles.forEach(tileEl => {
-            tileEl.classList.remove('tile-selected', 'tile-move', 'tile-capture');
+            tileEl.classList.remove('tile-selected', 'tile-move', 'tile-move-friendly', 'tile-capture');
         });
         highlightedTiles.length = 0;
     }
@@ -519,8 +533,7 @@
                         const rook = rookId ? piecesById.get(rookId) : null;
 
                         if (
-                            rook &&
-                            rook.type === 'rook' &&
+                            rook?.type === 'rook' &&
                             rook.color === piece.color &&
                             !rook.isCaptured &&
                             !rook.hasMoved
@@ -581,6 +594,8 @@
                             moves.push({
                                 q: kingDestinationQ,
                                 r: kingDestinationR,
+                                triggerQ: queenSideRookStart.q,
+                                triggerR: queenSideRookStart.r,
                                 castle: {
                                     type: 'queenside',
                                     rookId: rook.id,
@@ -662,24 +677,6 @@
             }
         });
         return candidate;
-    }
-
-    function isPathClearExclusive(fromQ, fromR, toQ, toR) {
-        const direction = findLineDirection(fromQ, fromR, toQ, toR);
-        if (!direction) {
-            return false;
-        }
-        let q = fromQ + direction.q;
-        let r = fromR + direction.r;
-        while (q !== toQ || r !== toR) {
-            const key = coordKey(q, r);
-            if (boardOccupancy.has(key)) {
-                return false;
-            }
-            q += direction.q;
-            r += direction.r;
-        }
-        return true;
     }
 
     function findLineDirection(fromQ, fromR, toQ, toR) {
