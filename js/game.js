@@ -8,6 +8,15 @@
         return;
     }
 
+    let authenticatedUser = null;
+    let newGameNoticeTimeoutId = null;
+
+    const authUI = buildAuthPopup();
+    if (authUI && document.body) {
+        document.body.appendChild(authUI.container);
+        initializeFirebaseAuth(authUI);
+    }
+
     const rootStyles = getComputedStyle(document.documentElement);
     const hexSize = Number.parseFloat(rootStyles.getPropertyValue('--hex-size')) || 46;
     const padding = hexSize * 1.25;
@@ -118,6 +127,20 @@
         { q: 0, r: -1 },
         { q: 1, r: -1 }
     ];
+    const KING_DIRECTIONS = [
+        { q: 1, r: 0 },
+        { q: -1, r: 0 },
+        { q: 0, r: 1 },
+        { q: 0, r: -1 },
+        { q: 1, r: -1 },
+        { q: -1, r: 1 },
+        { q: 2, r: -1 },
+        { q: -2, r: 1 },
+        { q: 1, r: 1 },
+        { q: -1, r: -1 },
+        { q: 1, r: -2 },
+        { q: -1, r: 2 }
+    ];
     const KNIGHT_OFFSETS = buildKnightOffsets();
 
     const board = document.createElement('div');
@@ -139,13 +162,18 @@
     layout.id = 'game-layout';
     const controls = buildGameControls();
     const historySidebar = buildHistorySidebar();
+    const sidePanel = document.createElement('div');
+    sidePanel.id = 'side-panel';
+    sidePanel.appendChild(controls);
+    sidePanel.appendChild(historySidebar);
     const promotionModal = buildPromotionModal();
+    const onlineGameModal = buildOnlineGameModal();
     layout.appendChild(boardContainer);
-    layout.appendChild(controls);
-    layout.appendChild(historySidebar);
+    layout.appendChild(sidePanel);
 
     appRoot.appendChild(layout);
     appRoot.appendChild(promotionModal);
+    appRoot.appendChild(onlineGameModal);
 
     initEmptyBoard();
 
@@ -485,22 +513,9 @@
 
     function getKingMoves(piece) {
         const moves = [];
-        const directions = [
-            { q: 1, r: 0 },   // straight directions
-            { q: -1, r: 0 },
-            { q: 0, r: 1 },
-            { q: 0, r: -1 },
-            { q: 1, r: -1 },
-            { q: -1, r: 1 },
-            { q: 2, r: -1 },  // diagonal directions
-            { q: -2, r: 1 },
-            { q: 1, r: 1 },
-            { q: -1, r: -1 },
-            { q: 1, r: -2 },
-            { q: -1, r: 2 }
-        ];
+        const opponentColor = piece.color === 'white' ? 'black' : 'white';
 
-        directions.forEach(dir => {
+        KING_DIRECTIONS.forEach(dir => {
             const target = {
                 q: piece.q + dir.q,
                 r: piece.r + dir.r
@@ -529,7 +544,9 @@
         // Queenside:
         //   White: no pieces on F1, E1, D1; move king to D1, rook from C1 to E1.
         //   Black: no pieces on F11, E10, D9; move king to D9, rook from C11 to E10.
-        if (!piece.hasMoved && !piece.isCaptured) {
+        const kingInCheckNow = isKingInCheck(piece.color);
+
+        if (!piece.hasMoved && !piece.isCaptured && !kingInCheckNow) {
             const isWhite = piece.color === 'white';
 
             // Kingside castling
@@ -546,7 +563,11 @@
                     const rookStartKey = coordKey(rookStart.q, rookStart.r);
 
                     // H3 / H11 must be empty
-                    if (tilePositions.has(throughKey) && !boardOccupancy.has(throughKey)) {
+                    if (
+                        tilePositions.has(throughKey) &&
+                        !boardOccupancy.has(throughKey) &&
+                        !isSquareAttacked(throughSquare.q, throughSquare.r, opponentColor)
+                    ) {
                         const rookId = boardOccupancy.get(rookStartKey);
                         const rook = rookId ? piecesById.get(rookId) : null;
 
@@ -596,13 +617,21 @@
                         const rookStartKey = coordKey(queenSideRookStart.q, queenSideRookStart.r);
                         const rookId = boardOccupancy.get(rookStartKey);
                         const rook = rookId ? piecesById.get(rookId) : null;
+                        const safeSquares = [
+                            queenStart,
+                            { q: queenSideKnightStart.q, r: queenSideKnightStart.r }
+                        ];
+                        const pathIsSafe = safeSquares.every(
+                            square => !isSquareAttacked(square.q, square.r, opponentColor)
+                        );
 
                         if (
                             rook &&
                             rook.type === 'rook' &&
                             rook.color === piece.color &&
                             !rook.isCaptured &&
-                            !rook.hasMoved
+                            !rook.hasMoved &&
+                            pathIsSafe
                         ) {
                             const kingDestinationQ = queenSideKnightStart.q;
                             const kingDestinationR = queenSideKnightStart.r;
@@ -685,6 +714,83 @@
         return king;
     }
 
+    function doesSliderAttackSquare(piece, targetQ, targetR, directions) {
+        for (const dir of directions) {
+            let q = piece.q + dir.q;
+            let r = piece.r + dir.r;
+            while (tilePositions.has(coordKey(q, r))) {
+                if (q === targetQ && r === targetR) {
+                    return true;
+                }
+                const key = coordKey(q, r);
+                if (boardOccupancy.has(key)) {
+                    break;
+                }
+                q += dir.q;
+                r += dir.r;
+            }
+        }
+        return false;
+    }
+
+    function doesPieceAttackSquare(piece, targetQ, targetR) {
+        if (!piece || piece.isCaptured) {
+            return false;
+        }
+        switch (piece.type) {
+            case 'pawn': {
+                const captureDirs =
+                    piece.color === 'white'
+                        ? [
+                              { q: 1, r: -1 },
+                              { q: -1, r: 0 }
+                          ]
+                        : [
+                              { q: 1, r: 0 },
+                              { q: -1, r: 1 }
+                          ];
+                return captureDirs.some(
+                    dir => piece.q + dir.q === targetQ && piece.r + dir.r === targetR
+                );
+            }
+            case 'knight':
+                return KNIGHT_OFFSETS.some(
+                    offset => piece.q + offset.q === targetQ && piece.r + offset.r === targetR
+                );
+            case 'king':
+                return KING_DIRECTIONS.some(
+                    dir => piece.q + dir.q === targetQ && piece.r + dir.r === targetR
+                );
+            case 'rook':
+                return doesSliderAttackSquare(piece, targetQ, targetR, STRAIGHT_DIRECTIONS);
+            case 'bishop':
+                return doesSliderAttackSquare(piece, targetQ, targetR, BISHOP_DIRECTIONS);
+            case 'queen':
+                return (
+                    doesSliderAttackSquare(piece, targetQ, targetR, STRAIGHT_DIRECTIONS) ||
+                    doesSliderAttackSquare(piece, targetQ, targetR, BISHOP_DIRECTIONS)
+                );
+            default:
+                return false;
+        }
+    }
+
+    function isSquareAttacked(q, r, attackingColor) {
+        let attacked = false;
+        piecesById.forEach(piece => {
+            if (attacked) {
+                return;
+            }
+            if (piece.color !== attackingColor || piece.isCaptured) {
+                return;
+            }
+            if (doesPieceAttackSquare(piece, q, r)) {
+                attacked = true;
+            }
+        });
+        return attacked;
+    }
+
     function isKingInCheck(color) {
         const king = findKing(color);
         if (!king) {
@@ -692,26 +798,7 @@
         }
 
         const opponentColor = color === 'white' ? 'black' : 'white';
-        let inCheck = false;
-
-        piecesById.forEach(piece => {
-            if (inCheck) {
-                return;
-            }
-            if (piece.color !== opponentColor || piece.isCaptured) {
-                return;
-            }
-            const moves = getMovesForPiece(piece);
-            for (let i = 0; i < moves.length; i += 1) {
-                const move = moves[i];
-                if (move.captureId === king.id) {
-                    inCheck = true;
-                    break;
-                }
-            }
-        });
-
-        return inCheck;
+        return isSquareAttacked(king.q, king.r, opponentColor);
     }
 
     function doesMoveLeaveKingInCheck(piece, move) {
@@ -886,11 +973,13 @@
             return false;
         }
 
-        // Promote only when the pawn actually reaches the farthest rank.
-        // On this board, white pawns move toward negative r and promote on r === -BOARD_RADIUS.
-        // Black pawns move toward positive r and promote on r === BOARD_RADIUS.
-        const promotionRank = piece.color === 'white' ? -BOARD_RADIUS : BOARD_RADIUS;
-        return r === promotionRank;
+        // Pawns promote when they reach the board edge in their forward direction.
+        // Instead of checking absolute ranks (which differ depending on the file),
+        // detect when there is no tile one more step ahead.
+        const forwardDir = piece.color === 'white' ? { q: 0, r: -1 } : { q: 0, r: 1 };
+        const nextQ = q + forwardDir.q;
+        const nextR = r + forwardDir.r;
+        return !tilePositions.has(coordKey(nextQ, nextR));
     }
 
     function moveSelectedPieceTo(move) {
@@ -1284,17 +1373,28 @@
         select.name = 'new-game';
         select.className = 'control-select';
 
-        const option = document.createElement('option');
-        option.value = 'local';
-        option.textContent = 'Local Game';
-        select.appendChild(option);
+        const localOption = document.createElement('option');
+        localOption.value = 'local';
+        localOption.textContent = 'Local Game';
+        select.appendChild(localOption);
+
+        const onlineOption = document.createElement('option');
+        onlineOption.value = 'create-online';
+        onlineOption.textContent = 'Create Online Game';
+        select.appendChild(onlineOption);
 
         select.addEventListener('change', handleNewGameSelection);
 
         topRow.appendChild(newGameButton);
         topRow.appendChild(select);
 
+        const notice = document.createElement('div');
+        notice.id = 'new-game-notice';
+        notice.className = 'control-notice';
+        notice.hidden = true;
+
         controls.appendChild(topRow);
+        controls.appendChild(notice);
         controls.appendChild(flipButton);
         return controls;
     }
@@ -1401,6 +1501,47 @@
         return modal;
     }
 
+    function buildOnlineGameModal() {
+        const modal = document.createElement('div');
+        modal.id = 'online-game-modal';
+        modal.className = 'online-game-modal';
+        modal.style.display = 'none';
+
+        const overlay = document.createElement('div');
+        overlay.className = 'online-game-overlay';
+
+        const content = document.createElement('div');
+        content.className = 'online-game-content';
+
+        const title = document.createElement('h3');
+        title.className = 'online-game-title';
+        title.textContent = 'Create Online Game';
+
+        const description = document.createElement('p');
+        description.className = 'online-game-description';
+        description.textContent = 'Thanks for signing in! Online multiplayer setup is coming soon.';
+
+        const closeButton = document.createElement('button');
+        closeButton.type = 'button';
+        closeButton.className = 'online-game-close';
+        closeButton.textContent = 'Close';
+
+        const closeModal = () => {
+            hideOnlineGameModal();
+        };
+
+        closeButton.addEventListener('click', closeModal);
+        overlay.addEventListener('click', closeModal);
+
+        content.appendChild(title);
+        content.appendChild(description);
+        content.appendChild(closeButton);
+        modal.appendChild(overlay);
+        modal.appendChild(content);
+
+        return modal;
+    }
+
     function showGameOverOverlay(message) {
         const overlay = document.getElementById('game-over-overlay');
         if (!overlay) {
@@ -1447,6 +1588,16 @@
             clearHistory();
             resetBoard();
             hideGameOverOverlay();
+            return;
+        }
+
+        if (mode === 'create-online') {
+            if (!authenticatedUser) {
+                showNewGameNotice('Please sign in to create an online game.');
+                return;
+            }
+            hideNewGameNotice();
+            showOnlineGameModal();
         }
     }
 
@@ -1625,5 +1776,208 @@
             seen.add(key);
             return true;
         });
+    }
+
+    function showOnlineGameModal() {
+        const modal = document.getElementById('online-game-modal');
+        if (!modal) {
+            return;
+        }
+        modal.style.display = 'flex';
+    }
+
+    function hideOnlineGameModal() {
+        const modal = document.getElementById('online-game-modal');
+        if (!modal) {
+            return;
+        }
+        modal.style.display = 'none';
+    }
+
+    function showNewGameNotice(message) {
+        const notice = document.getElementById('new-game-notice');
+        if (!notice) {
+            window.alert(message);
+            return;
+        }
+        notice.textContent = message;
+        notice.hidden = false;
+        if (newGameNoticeTimeoutId !== null) {
+            clearTimeout(newGameNoticeTimeoutId);
+        }
+        newGameNoticeTimeoutId = window.setTimeout(() => {
+            hideNewGameNotice();
+        }, 4000);
+    }
+
+    function hideNewGameNotice() {
+        const notice = document.getElementById('new-game-notice');
+        if (!notice) {
+            return;
+        }
+        notice.hidden = true;
+        notice.textContent = '';
+        if (newGameNoticeTimeoutId !== null) {
+            clearTimeout(newGameNoticeTimeoutId);
+            newGameNoticeTimeoutId = null;
+        }
+    }
+
+    function buildAuthPopup() {
+        if (!document || !document.body) {
+            return null;
+        }
+
+        const container = document.createElement('div');
+        container.id = 'auth-popup';
+        container.className = 'auth-popup';
+
+        const signInButton = document.createElement('button');
+        signInButton.type = 'button';
+        signInButton.id = 'google-sign-in';
+        signInButton.className = 'auth-button';
+        signInButton.textContent = 'Sign in with Google';
+
+        const userContainer = document.createElement('div');
+        userContainer.id = 'auth-user';
+        userContainer.className = 'auth-user';
+        userContainer.hidden = true;
+
+        const photoElement = document.createElement('img');
+        photoElement.id = 'auth-user-photo';
+        photoElement.width = 40;
+        photoElement.height = 40;
+        photoElement.alt = 'Signed in user avatar';
+        photoElement.hidden = true;
+
+        const details = document.createElement('div');
+        details.className = 'auth-user-details';
+
+        const nameElement = document.createElement('span');
+        nameElement.id = 'auth-user-name';
+        nameElement.className = 'auth-user-name';
+
+        const emailElement = document.createElement('span');
+        emailElement.id = 'auth-user-email';
+        emailElement.className = 'auth-user-email';
+
+        details.appendChild(nameElement);
+        details.appendChild(emailElement);
+
+        const signOutButton = document.createElement('button');
+        signOutButton.type = 'button';
+        signOutButton.id = 'sign-out-button';
+        signOutButton.className = 'auth-button auth-button-secondary';
+        signOutButton.textContent = 'Sign out';
+
+        userContainer.appendChild(photoElement);
+        userContainer.appendChild(details);
+        userContainer.appendChild(signOutButton);
+
+        container.appendChild(signInButton);
+        container.appendChild(userContainer);
+
+        return {
+            container,
+            signInButton,
+            signOutButton,
+            userContainer,
+            nameElement,
+            emailElement,
+            photoElement
+        };
+    }
+
+    function initializeFirebaseAuth(authUIElements) {
+        if (!authUIElements) {
+            return;
+        }
+
+        if (!window.firebase) {
+            console.warn('Firebase SDK unavailable; authentication disabled.');
+            return;
+        }
+        if (typeof firebaseConfig === 'undefined') {
+            console.warn('firebaseConfig missing; authentication disabled.');
+            return;
+        }
+
+        let firebaseApp;
+        try {
+            firebaseApp = firebase.apps && firebase.apps.length ? firebase.app() : firebase.initializeApp(firebaseConfig);
+        } catch (error) {
+            console.error('Firebase initialization failed:', error);
+            return;
+        }
+
+        const auth = firebase.auth(firebaseApp);
+        const provider = new firebase.auth.GoogleAuthProvider();
+        const {
+            signInButton,
+            signOutButton,
+            userContainer,
+            nameElement,
+            emailElement,
+            photoElement
+        } = authUIElements;
+
+        const setLoadingState = isLoading => {
+            signInButton.disabled = isLoading;
+            signOutButton.disabled = isLoading;
+        };
+
+        const updateSignedInState = user => {
+            if (user) {
+                signInButton.hidden = true;
+                userContainer.hidden = false;
+                nameElement.textContent = user.displayName || 'Google User';
+                emailElement.textContent = user.email || '';
+                if (user.photoURL) {
+                    photoElement.src = user.photoURL;
+                    photoElement.hidden = false;
+                } else {
+                    photoElement.hidden = true;
+                    photoElement.removeAttribute('src');
+                }
+            } else {
+                signInButton.hidden = false;
+                userContainer.hidden = true;
+                nameElement.textContent = '';
+                emailElement.textContent = '';
+                photoElement.removeAttribute('src');
+                photoElement.hidden = true;
+            }
+        };
+
+        signInButton.addEventListener('click', () => {
+            setLoadingState(true);
+            auth.signInWithPopup(provider).catch(error => {
+                console.error('Google sign-in failed:', error);
+                setLoadingState(false);
+            });
+        });
+
+        signOutButton.addEventListener('click', () => {
+            setLoadingState(true);
+            auth.signOut().catch(error => {
+                console.error('Sign out failed:', error);
+                setLoadingState(false);
+            });
+        });
+
+        auth.onAuthStateChanged(user => {
+            setLoadingState(false);
+            updateSignedInState(user);
+            authenticatedUser = user;
+            if (authenticatedUser) {
+                hideNewGameNotice();
+            }
+        });
+
+        authenticatedUser = auth.currentUser;
+        updateSignedInState(auth.currentUser);
+        if (authenticatedUser) {
+            hideNewGameNotice();
+        }
     }
 })();
