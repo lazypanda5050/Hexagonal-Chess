@@ -72,6 +72,7 @@ body {
 }
 
 #board-container {
+    position: relative;
     background: #ffffff;
     border-radius: 24px;
     border: 4px solid #ffffff;
@@ -90,12 +91,69 @@ body {
     transition: transform 220ms ease;
 }
 
+.game-over-overlay {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    /* No backdrop dimming */
+    background: transparent;
+    z-index: 900;
+    pointer-events: none;
+    display: block;
+}
+
+.game-over-content {
+    position: relative;
+    background: #ffffff;
+    border-radius: 18px;
+    padding: 2.5rem 3rem;
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.45);
+    text-align: center;
+    max-width: 420px;
+    pointer-events: auto;
+}
+
+.game-over-close {
+    position: absolute;
+    top: 0.85rem;
+    right: 0.95rem;
+    border: none;
+    background: transparent;
+    color: #555;
+    font-size: 1.1rem;
+    font-weight: 700;
+    cursor: pointer;
+    line-height: 1;
+}
+
+.game-over-close:hover {
+    color: #000;
+}
+
+.game-over-title {
+    font-size: 2rem;
+    font-weight: 800;
+    margin-bottom: 0.75rem;
+    color: #111216;
+}
+
+.game-over-subtitle {
+    font-size: 1.2rem;
+    font-weight: 600;
+    color: #3c55c8;
+}
+
 .piece {
     position: absolute;
     pointer-events: none;
     user-select: none;
     object-fit: contain;
     transition: left 220ms ease-out, top 220ms ease-out;
+}
+
+.piece-king-in-check {
+    filter: drop-shadow(0 0 10px rgba(255, 0, 0, 0.95));
 }
 
 .hex-tile {
