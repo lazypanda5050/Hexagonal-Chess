@@ -33,6 +33,7 @@
     const moveHistory = [];
     let currentMoveNumber = 1;
     let pendingPromotion = null;
+    let isGameOver = false;
 
     const PIECE_SPRITES = {
         white: {
@@ -129,6 +130,9 @@
     const boardContainer = document.createElement('div');
     boardContainer.id = 'board-container';
     boardContainer.appendChild(board);
+
+    const gameOverOverlay = buildGameOverOverlay();
+    boardContainer.appendChild(gameOverOverlay);
 
     const layout = document.createElement('div');
     layout.id = 'game-layout';
@@ -258,6 +262,9 @@
     }
 
     function handleTileClick(q, r) {
+        if (isGameOver) {
+            return;
+        }
         const move = availableMoves.find(
             entry =>
                 (entry.q === q && entry.r === r) ||
@@ -282,7 +289,7 @@
             clearSelection();
             return;
         }
-        const moves = getMovesForPiece(piece);
+        const moves = getLegalMovesForPiece(piece);
         if (moves.length === 0) {
             clearSelection();
             return;
@@ -296,7 +303,7 @@
 
     function selectPiece(piece, precomputedMoves) {
         selectedPieceId = piece.id;
-        availableMoves = precomputedMoves ?? getMovesForPiece(piece);
+        availableMoves = precomputedMoves ?? getLegalMovesForPiece(piece);
         highlightSelection(piece, availableMoves);
     }
 
@@ -664,6 +671,136 @@
         return moves;
     }
 
+    function findKing(color) {
+        let king = null;
+        piecesById.forEach(piece => {
+            if (piece.type === 'king' && piece.color === color && !piece.isCaptured) {
+                king = piece;
+            }
+        });
+        return king;
+    }
+
+    function isKingInCheck(color) {
+        const king = findKing(color);
+        if (!king) {
+            return false;
+        }
+
+        const opponentColor = color === 'white' ? 'black' : 'white';
+        let inCheck = false;
+
+        piecesById.forEach(piece => {
+            if (inCheck) {
+                return;
+            }
+            if (piece.color !== opponentColor || piece.isCaptured) {
+                return;
+            }
+            const moves = getMovesForPiece(piece);
+            for (let i = 0; i < moves.length; i += 1) {
+                const move = moves[i];
+                if (move.captureId === king.id) {
+                    inCheck = true;
+                    break;
+                }
+            }
+        });
+
+        return inCheck;
+    }
+
+    function doesMoveLeaveKingInCheck(piece, move) {
+        const fromQ = piece.q;
+        const fromR = piece.r;
+        const fromKey = coordKey(fromQ, fromR);
+        const toQ = move.q;
+        const toR = move.r;
+        const toKey = coordKey(toQ, toR);
+        const originalHasMoved = piece.hasMoved;
+
+        const capturedPiece = move.captureId ? piecesById.get(move.captureId) : null;
+        let capturedOriginalQ = null;
+        let capturedOriginalR = null;
+        let capturedOriginalIsCaptured = null;
+
+        if (capturedPiece) {
+            capturedOriginalQ = capturedPiece.q;
+            capturedOriginalR = capturedPiece.r;
+            capturedOriginalIsCaptured = capturedPiece.isCaptured;
+        }
+
+        const castleInfo = move.castle;
+        const rook = castleInfo ? piecesById.get(castleInfo.rookId ?? '') : null;
+        let rookOriginalQ = null;
+        let rookOriginalR = null;
+        let rookOriginalHasMoved = null;
+
+        if (rook && !rook.isCaptured) {
+            rookOriginalQ = rook.q;
+            rookOriginalR = rook.r;
+            rookOriginalHasMoved = rook.hasMoved;
+        }
+
+        // Apply simulated move
+        boardOccupancy.delete(fromKey);
+
+        if (capturedPiece) {
+            const capturedKey = coordKey(capturedPiece.q, capturedPiece.r);
+            boardOccupancy.delete(capturedKey);
+            capturedPiece.isCaptured = true;
+        }
+
+        piece.q = toQ;
+        piece.r = toR;
+        piece.hasMoved = true;
+        boardOccupancy.set(toKey, piece.id);
+
+        if (rook && !rook.isCaptured) {
+            const rookFromKey = coordKey(rook.q, rook.r);
+            boardOccupancy.delete(rookFromKey);
+            rook.q = castleInfo.rookToQ;
+            rook.r = castleInfo.rookToR;
+            rook.hasMoved = true;
+            const rookToKey = coordKey(rook.q, rook.r);
+            boardOccupancy.set(rookToKey, rook.id);
+        }
+
+        const kingInCheck = isKingInCheck(piece.color);
+
+        // Revert simulated move
+        boardOccupancy.delete(toKey);
+        piece.q = fromQ;
+        piece.r = fromR;
+        piece.hasMoved = originalHasMoved;
+        boardOccupancy.set(fromKey, piece.id);
+
+        if (rook && !rook.isCaptured) {
+            const rookToKey = coordKey(rook.q, rook.r);
+            boardOccupancy.delete(rookToKey);
+            rook.q = rookOriginalQ;
+            rook.r = rookOriginalR;
+            rook.hasMoved = rookOriginalHasMoved;
+            const rookOriginalKey = coordKey(rook.q, rook.r);
+            boardOccupancy.set(rookOriginalKey, rook.id);
+        }
+
+        if (capturedPiece) {
+            capturedPiece.q = capturedOriginalQ;
+            capturedPiece.r = capturedOriginalR;
+            capturedPiece.isCaptured = capturedOriginalIsCaptured;
+            const capturedKey = coordKey(capturedPiece.q, capturedPiece.r);
+            boardOccupancy.set(capturedKey, capturedPiece.id);
+        }
+
+        return kingInCheck;
+    }
+
+    function getLegalMovesForPiece(piece) {
+        const pseudoLegalMoves = getMovesForPiece(piece);
+        return pseudoLegalMoves.filter(move => !doesMoveLeaveKingInCheck(piece, move));
+    }
+
     function findKingsideRook(king) {
         // Kingside rook initial positions
         const kingsideRookInitial = king.color === 'white'
@@ -761,16 +898,15 @@
     }
 
     function isPawnPromotionSquare(piece, q, r) {
-        if (piece.type !== 'pawn') return false;
-        
-        // Simple fix: just reverse the logic
-        if (piece.color === 'white') {
-            // White promotes on black's back rank (positive r values)
-            return r >= 4;
-        } else {
-            // Black promotes on white's back rank (negative r values)
-            return r <= -4;
+        if (piece.type !== 'pawn') {
+            return false;
         }
+
+        // Promote only when the pawn actually reaches the farthest rank.
+        // On this board, white pawns move toward negative r and promote on r === -BOARD_RADIUS.
+        // Black pawns move toward positive r and promote on r === BOARD_RADIUS.
+        const promotionRank = piece.color === 'white' ? -BOARD_RADIUS : BOARD_RADIUS;
+        return r === promotionRank;
     }
 
     function moveSelectedPieceTo(move) {
@@ -1064,29 +1200,41 @@
     }
 
     function createMoveNotation(piece, fromQ, fromR, toQ, toR, isCapture, isCastle, promotionType = null) {
+        const opponentColor = piece.color === 'white' ? 'black' : 'white';
+        let notation;
+
         if (isCastle) {
-            return isCastle.type === 'kingside' ? 'O-O' : 'O-O-O';
-        }
-        
-        const pieceSymbol = pieceNotation(piece);
-        const fromSquare = positionToNotation(fromQ, fromR);
-        const toSquare = positionToNotation(toQ, toR);
-        const captureSymbol = isCapture ? 'x' : '';
-        const promotionSymbol = promotionType ? '=' + pieceNotation({ type: promotionType }) : '';
-        
-        if (piece.type === 'pawn') {
-            if (isCapture) {
-                // For pawn captures, use the file letter + x + destination
-                const fromFile = fromSquare.match(/([A-K])/)?.[1] || '';
-                return fromFile + captureSymbol + toSquare + promotionSymbol;
+            notation = isCastle.type === 'kingside' ? 'O-O' : 'O-O-O';
+        } else {
+            const pieceSymbol = pieceNotation(piece);
+            const fromSquare = positionToNotation(fromQ, fromR);
+            const toSquare = positionToNotation(toQ, toR);
+            const captureSymbol = isCapture ? 'x' : '';
+            const promotionSymbol = promotionType ? '=' + pieceNotation({ type: promotionType }) : '';
+
+            if (piece.type === 'pawn') {
+                if (isCapture) {
+                    // For pawn captures, use the file letter + x + destination
+                    const fromFile = fromSquare.match(/([A-K])/)?.[1] || '';
+                    notation = fromFile + captureSymbol + toSquare + promotionSymbol;
+                } else {
+                    // For pawn moves, just show destination
+                    notation = toSquare + promotionSymbol;
+                }
+            } else {
+                // For pieces, show piece symbol + destination (simplified notation)
+                // Standard chess notation doesn't include from-square unless ambiguous
+                notation = pieceSymbol + captureSymbol + toSquare + promotionSymbol;
             }
-            // For pawn moves, just show destination
-            return toSquare + promotionSymbol;
         }
-        
-        // For pieces, show piece symbol + destination (simplified notation)
-        // Standard chess notation doesn't include from-square unless ambiguous
-        return pieceSymbol + captureSymbol + toSquare + promotionSymbol;
+
+        const inCheck = isKingInCheck(opponentColor);
+        if (inCheck) {
+            const opponentHasMoves = hasAnyLegalMoves(opponentColor);
+            notation += opponentHasMoves ? '+' : '#';
+        }
+
+        return notation;
     }
 
     function buildInitialPieces() {
@@ -1148,7 +1296,6 @@
         option.textContent = 'Local Game';
         select.appendChild(option);
 
-        select.addEventListener('click', handleNewGameSelection);
         select.addEventListener('change', handleNewGameSelection);
 
         topRow.appendChild(newGameButton);
@@ -1157,6 +1304,39 @@
         controls.appendChild(topRow);
         controls.appendChild(flipButton);
         return controls;
+    }
+
+    function buildGameOverOverlay() {
+        const overlay = document.createElement('div');
+        overlay.id = 'game-over-overlay';
+        overlay.className = 'game-over-overlay';
+        overlay.style.display = 'none';
+
+        const content = document.createElement('div');
+        content.className = 'game-over-content';
+
+        const closeButton = document.createElement('button');
+        closeButton.type = 'button';
+        closeButton.className = 'game-over-close';
+        closeButton.textContent = '✕';
+        closeButton.addEventListener('click', () => {
+            hideGameOverOverlay();
+        });
+
+        const title = document.createElement('div');
+        title.className = 'game-over-title';
+        title.textContent = 'Checkmate!';
+
+        const subtitle = document.createElement('div');
+        subtitle.className = 'game-over-subtitle';
+        subtitle.textContent = '';
+
+        content.appendChild(closeButton);
+        content.appendChild(title);
+        content.appendChild(subtitle);
+        overlay.appendChild(content);
+
+        return overlay;
     }
 
     function buildHistorySidebar() {
@@ -1228,6 +1408,26 @@
         return modal;
     }
 
+    function showGameOverOverlay(message) {
+        const overlay = document.getElementById('game-over-overlay');
+        if (!overlay) {
+            return;
+        }
+        const subtitle = overlay.querySelector('.game-over-subtitle');
+        if (subtitle) {
+            subtitle.textContent = message;
+        }
+        overlay.style.display = 'block';
+    }
+
+    function hideGameOverOverlay() {
+        const overlay = document.getElementById('game-over-overlay');
+        if (!overlay) {
+            return;
+        }
+        overlay.style.display = 'none';
+    }
+
     function handleNewGameClick() {
         const select = document.getElementById('new-game-select');
         const mode = select?.value ?? 'local';
@@ -1249,9 +1449,11 @@
                 pendingFlipTimeoutId = null;
             }
             currentTurn = 'white';
+            isGameOver = false;
             applyBoardOrientationForCurrentTurn();
             clearHistory();
             resetBoard();
+            hideGameOverOverlay();
         }
     }
 
@@ -1276,6 +1478,59 @@
             applyBoardOrientationForCurrentTurn();
             pendingFlipTimeoutId = null;
         }, 676);
+        updateKingInCheckHighlight();
+        checkForCheckmate();
+    }
+
+    function clearKingInCheckHighlights() {
+        piecesById.forEach(piece => {
+            if (piece.type === 'king' && piece.element) {
+                piece.element.classList.remove('piece-king-in-check');
+            }
+        });
+    }
+
+    function updateKingInCheckHighlight() {
+        clearKingInCheckHighlights();
+        ['white', 'black'].forEach(color => {
+            if (isKingInCheck(color)) {
+                const king = findKing(color);
+                if (king?.element) {
+                    king.element.classList.add('piece-king-in-check');
+                }
+            }
+        });
+    }
+
+    function hasAnyLegalMoves(color) {
+        let hasMoves = false;
+        piecesById.forEach(piece => {
+            if (hasMoves) {
+                return;
+            }
+            if (piece.color !== color || piece.isCaptured) {
+                return;
+            }
+            const moves = getLegalMovesForPiece(piece);
+            if (moves.length > 0) {
+                hasMoves = true;
+            }
+        });
+        return hasMoves;
+    }
+
+    function checkForCheckmate() {
+        const sideToMove = currentTurn;
+        const inCheck = isKingInCheck(sideToMove);
+        if (!inCheck) {
+            return;
+        }
+        const hasMoves = hasAnyLegalMoves(sideToMove);
+        if (!hasMoves) {
+            const winner = sideToMove === 'white' ? 'Black' : 'White';
+            showGameOverOverlay(`Checkmate! ${winner} Wins!`);
+            isGameOver = true;
+        }
     }
 
     function resetPawnStartingSquares() {
