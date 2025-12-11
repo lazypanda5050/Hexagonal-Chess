@@ -88,7 +88,7 @@ body {
     position: relative;
     overflow: visible;
     transform-origin: center;
-    transition: transform 220ms ease;
+    transition: transform 500ms ease;
 }
 
 .game-over-overlay {
@@ -248,6 +248,7 @@ body {
 #board-container.board-flipped .board-label,
 #board-container.board-flipped .piece {
     transform: rotate(180deg);
+    transition: transform 500ms ease;
 }
 
 #history-sidebar {
