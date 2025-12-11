@@ -1025,36 +1025,30 @@
         return `${q},${r}`;
     }
 
+    window.HexUtils = {
+        axialToNotation: (q, r) => {
+            const file = String.fromCodePoint(65 + (q + 5)); // A corresponds to q=-5
+            const rank = 6 - r;                             // 1 corresponds to r=5
+            return `${file}${rank}`;
+        },
+
+        notationToAxial: (notation) => {
+            if (!notation || notation.length < 2) return null;
+            
+            const fileChar = notation.charAt(0).toUpperCase();
+            const rankStr = notation.slice(1);
+            
+            const q = fileChar.codePointAt(0) - 65 - 5;
+            const r = 6 - Number.parseInt(rankStr, 10);
+            
+            if (Number.isNaN(q) || Number.isNaN(r)) return null;
+
+            return { q, r };
+        }
+    };
+
     function positionToNotation(q, r) {
-        // Create coordinate maps for faster lookup
-        if (!positionToNotation.letterMap) {
-            positionToNotation.letterMap = new Map();
-            positionToNotation.numberMap = new Map();
-            
-            const letterEntries = buildLetterLabelEntries(tiles);
-            const numberEntries = buildNumberLabelEntries(tiles);
-            
-            letterEntries.slice(0, 11).forEach((entry, index) => {
-                const key = coordKey(entry.q, entry.r);
-                positionToNotation.letterMap.set(key, String.fromCharCode(65 + index));
-            });
-            
-            numberEntries.slice(0, 11).forEach((entry, index) => {
-                const key = coordKey(entry.q, entry.r);
-                positionToNotation.numberMap.set(key, String(index + 1));
-            });
-        }
-        
-        const key = coordKey(q, r);
-        const file = positionToNotation.letterMap.get(key) || '';
-        const rank = positionToNotation.numberMap.get(key) || '';
-        
-        if (!file || !rank) {
-            // Fallback: use coordinate-based notation
-            return `${q > 0 ? '+' : ''}${q},${r > 0 ? '+' : ''}${r}`;
-        }
-        
-        return file + rank;
+        return window.HexUtils.axialToNotation(q, r);
     }
 
     function pieceNotation(piece) {
@@ -1344,13 +1338,6 @@
         currentMoveNumber = 1;
         pendingPromotion = null;
         hidePromotionModal();
-        // Clear coordinate maps when starting new game
-        if (positionToNotation.letterMap) {
-            positionToNotation.letterMap.clear();
-            positionToNotation.numberMap.clear();
-            positionToNotation.letterMap = null;
-            positionToNotation.numberMap = null;
-        }
         updateHistoryDisplay();
     }
 
