@@ -1,6 +1,7 @@
-(() => {
+    (() => {
     const BOARD_RADIUS = 5; // Creates 91 tiles for Gliński's board
     const SQRT3 = Math.sqrt(3);
+    const BOARD_FLIP_DELAY = 676; // Delay for board flip animation in milliseconds
 
     const appRoot = document.getElementById('app');
     if (!appRoot) {
@@ -218,6 +219,10 @@
             pieceElement.style.top = `${position.centerY - pieceSize / 2}px`;
             piece.element = pieceElement;
             pieceElement.dataset.pieceId = piece.id;
+            pieceElement.addEventListener('click', (e) => {
+                e.stopPropagation();
+                handleTileClick(piece.q, piece.r);
+            });
             board.appendChild(pieceElement);
         });
     }
@@ -258,7 +263,6 @@
             boardOccupancy.set(coordKey(piece.q, piece.r), piece.id);
         });
         renderPieces(pieces);
-    
     }
 
     function handleTileClick(q, r) {
@@ -801,27 +805,7 @@
         return pseudoLegalMoves.filter(move => !doesMoveLeaveKingInCheck(piece, move));
     }
 
-    function findKingsideRook(king) {
-        // Kingside rook initial positions
-        const kingsideRookInitial = king.color === 'white'
-            ? { q: 3, r: 2 }    // White kingside rook
-            : { q: 3, r: -5 };  // Black kingside rook, mirrored across horizontal axis
 
-        let candidate = null;
-        piecesById.forEach(piece => {
-            if (
-                piece.type === 'rook' &&
-                piece.color === king.color &&
-                !piece.isCaptured &&
-                !piece.hasMoved &&
-                piece.initialQ === kingsideRookInitial.q &&
-                piece.initialR === kingsideRookInitial.r
-            ) {
-                candidate = piece;
-            }
-        });
-        return candidate;
-    }
 
     function findLineDirection(fromQ, fromR, toQ, toR) {
         const candidates = [...STRAIGHT_DIRECTIONS, ...BISHOP_DIRECTIONS];
@@ -910,7 +894,10 @@
     }
 
     function moveSelectedPieceTo(move) {
-        const piece = piecesById.get(selectedPieceId ?? '');
+        if (!selectedPieceId) {
+            return;
+        }
+        const piece = piecesById.get(selectedPieceId);
         if (!piece) {
             return;
         }
@@ -1178,6 +1165,12 @@
             const r = 6 - Number.parseInt(rankStr, 10);
             
             if (Number.isNaN(q) || Number.isNaN(r)) return null;
+
+            // Validate coordinates are within board bounds
+            const s = -q - r;
+            if (Math.abs(q) > BOARD_RADIUS || Math.abs(r) > BOARD_RADIUS || Math.abs(s) > BOARD_RADIUS) {
+                return null;
+            }
 
             return { q, r };
         }
@@ -1473,11 +1466,15 @@
         currentTurn = piece.color === 'white' ? 'black' : 'white';
         if (pendingFlipTimeoutId !== null) {
             clearTimeout(pendingFlipTimeoutId);
-        }
-        pendingFlipTimeoutId = window.setTimeout(() => {
-            applyBoardOrientationForCurrentTurn();
             pendingFlipTimeoutId = null;
-        }, 676);
+        }
+        // Only flip if it's actually a different player's turn
+        if (piece.color !== currentTurn) {
+            pendingFlipTimeoutId = window.setTimeout(() => {
+                applyBoardOrientationForCurrentTurn();
+                pendingFlipTimeoutId = null;
+            }, BOARD_FLIP_DELAY);
+        }
         updateKingInCheckHighlight();
         checkForCheckmate();
     }
@@ -1522,13 +1519,15 @@
     function checkForCheckmate() {
         const sideToMove = currentTurn;
         const inCheck = isKingInCheck(sideToMove);
-        if (!inCheck) {
-            return;
-        }
         const hasMoves = hasAnyLegalMoves(sideToMove);
+        
         if (!hasMoves) {
-            const winner = sideToMove === 'white' ? 'Black' : 'White';
-            showGameOverOverlay(`Checkmate! ${winner} Wins!`);
+            if (inCheck) {
+                const winner = sideToMove === 'white' ? 'Black' : 'White';
+                showGameOverOverlay(`Checkmate! ${winner} Wins!`);
+            } else {
+                showGameOverOverlay('Stalemate! Draw!');
+            }
             isGameOver = true;
         }
     }

@@ -146,10 +146,11 @@ body {
 
 .piece {
     position: absolute;
-    pointer-events: none;
+    pointer-events: auto;
     user-select: none;
     object-fit: contain;
     transition: left 220ms ease-out, top 220ms ease-out;
+    cursor: pointer;
 }
 
 .piece-king-in-check {
