@@ -1457,7 +1457,16 @@
 
     function applyBoardOrientationForCurrentTurn() {
         const isBlackTurn = currentTurn === 'black';
-        isBoardFlipped = isBlackTurn;
+        const shouldBeFlipped = isBlackTurn;
+        
+        // Force a transition by first removing the class, then adding it
+        if (isBoardFlipped === shouldBeFlipped) {
+            // No change needed, but force animation anyway
+            boardContainer.classList.remove('board-flipped');
+            void boardContainer.offsetWidth; // Force reflow
+        }
+        
+        isBoardFlipped = shouldBeFlipped;
         boardContainer.classList.toggle('board-flipped', isBoardFlipped);
         boardContainer.classList.toggle('board-turn-black', isBlackTurn);
     }
