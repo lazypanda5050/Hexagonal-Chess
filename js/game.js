@@ -32,6 +32,7 @@
     const lastMoveTiles = [];
     const moveHistory = [];
     let currentMoveNumber = 1;
+    let pendingPromotion = null;
 
     const PIECE_SPRITES = {
         white: {
@@ -133,11 +134,13 @@
     layout.id = 'game-layout';
     const controls = buildGameControls();
     const historySidebar = buildHistorySidebar();
+    const promotionModal = buildPromotionModal();
     layout.appendChild(boardContainer);
     layout.appendChild(controls);
     layout.appendChild(historySidebar);
 
     appRoot.appendChild(layout);
+    appRoot.appendChild(promotionModal);
 
     initEmptyBoard();
 
@@ -757,6 +760,19 @@
         );
     }
 
+    function isPawnPromotionSquare(piece, q, r) {
+        if (piece.type !== 'pawn') return false;
+        
+        // Simple fix: just reverse the logic
+        if (piece.color === 'white') {
+            // White promotes on black's back rank (positive r values)
+            return r >= 4;
+        } else {
+            // Black promotes on white's back rank (negative r values)
+            return r <= -4;
+        }
+    }
+
     function moveSelectedPieceTo(move) {
         const piece = piecesById.get(selectedPieceId ?? '');
         if (!piece) {
@@ -772,6 +788,25 @@
             capturePiece(move.captureId);
         }
 
+        // Check for pawn promotion
+        if (piece.type === 'pawn' && isPawnPromotionSquare(piece, move.q, move.r)) {
+            pendingPromotion = {
+                piece: piece,
+                fromQ: fromQ,
+                fromR: fromR,
+                toQ: move.q,
+                toR: move.r,
+                isCapture: isCapture,
+                castle: move.castle
+            };
+            showPromotionModal(piece.color);
+            return;
+        }
+
+        completeMove(piece, fromQ, fromR, move, isCapture);
+    }
+
+    function completeMove(piece, fromQ, fromR, move, isCapture, promotionType = null) {
         if (move.castle) {
             const rook = piecesById.get(move.castle.rookId ?? '');
             if (rook && !rook.isCaptured) {
@@ -786,6 +821,13 @@
             }
         }
 
+        // Handle promotion
+        if (promotionType) {
+            piece.type = promotionType;
+            piece.element.src = PIECE_SPRITES[piece.color][promotionType];
+            piece.element.alt = `${piece.color} ${promotionType}`;
+        }
+
         piece.q = move.q;
         piece.r = move.r;
         piece.hasMoved = true;
@@ -793,12 +835,41 @@
         boardOccupancy.set(destinationKey, piece.id);
         updatePiecePosition(piece);
         
-        const moveNotation = createMoveNotation(piece, fromQ, fromR, piece.q, piece.r, isCapture, move.castle);
+        const moveNotation = createMoveNotation(piece, fromQ, fromR, piece.q, piece.r, isCapture, move.castle, promotionType);
         addMoveToHistory(moveNotation, piece.color);
         
         highlightLastMove(fromQ, fromR, piece.q, piece.r);
         clearSelection();
         endTurn(piece);
+    }
+
+    function showPromotionModal(color) {
+        const modal = document.getElementById('promotion-modal');
+        const pieceButtons = modal.querySelectorAll('.promotion-piece img');
+        
+        pieceButtons.forEach(img => {
+            const pieceType = img.parentElement.dataset.piece;
+            img.src = PIECE_SPRITES[color][pieceType];
+        });
+        
+        modal.style.display = 'block';
+    }
+
+    function hidePromotionModal() {
+        const modal = document.getElementById('promotion-modal');
+        modal.style.display = 'none';
+    }
+
+    function handlePromotionChoice(promotionType) {
+        if (!pendingPromotion) return;
+        
+        const { piece, fromQ, fromR, toQ, toR, isCapture, castle } = pendingPromotion;
+        
+        hidePromotionModal();
+        
+        completeMove(piece, fromQ, fromR, { q: toQ, r: toR, castle: castle }, isCapture, promotionType);
+        
+        pendingPromotion = null;
     }
 
     function highlightLastMove(fromQ, fromR, toQ, toR) {
@@ -955,28 +1026,32 @@
     }
 
     function positionToNotation(q, r) {
-        const letterEntries = buildLetterLabelEntries(tiles);
-        const numberEntries = buildNumberLabelEntries(tiles);
-        
-        let file = '';
-        let rank = '';
-        
-        for (let i = 0; i < Math.min(letterEntries.length, 11); i++) {
-            if (letterEntries[i].q === q && letterEntries[i].r === r) {
-                file = String.fromCharCode(65 + i);
-                break;
-            }
+        // Create coordinate maps for faster lookup
+        if (!positionToNotation.letterMap) {
+            positionToNotation.letterMap = new Map();
+            positionToNotation.numberMap = new Map();
+            
+            const letterEntries = buildLetterLabelEntries(tiles);
+            const numberEntries = buildNumberLabelEntries(tiles);
+            
+            letterEntries.slice(0, 11).forEach((entry, index) => {
+                const key = coordKey(entry.q, entry.r);
+                positionToNotation.letterMap.set(key, String.fromCharCode(65 + index));
+            });
+            
+            numberEntries.slice(0, 11).forEach((entry, index) => {
+                const key = coordKey(entry.q, entry.r);
+                positionToNotation.numberMap.set(key, String(index + 1));
+            });
         }
         
-        for (let i = 0; i < Math.min(numberEntries.length, 11); i++) {
-            if (numberEntries[i].q === q && numberEntries[i].r === r) {
-                rank = String(i + 1);
-                break;
-            }
-        }
+        const key = coordKey(q, r);
+        const file = positionToNotation.letterMap.get(key) || '';
+        const rank = positionToNotation.numberMap.get(key) || '';
         
         if (!file || !rank) {
-            return '';
+            // Fallback: use coordinate-based notation
+            return `${q > 0 ? '+' : ''}${q},${r > 0 ? '+' : ''}${r}`;
         }
         
         return file + rank;
@@ -994,7 +1069,7 @@
         return notations[piece.type] || '';
     }
 
-    function createMoveNotation(piece, fromQ, fromR, toQ, toR, isCapture, isCastle) {
+    function createMoveNotation(piece, fromQ, fromR, toQ, toR, isCapture, isCastle, promotionType = null) {
         if (isCastle) {
             return isCastle.type === 'kingside' ? 'O-O' : 'O-O-O';
         }
@@ -1003,19 +1078,21 @@
         const fromSquare = positionToNotation(fromQ, fromR);
         const toSquare = positionToNotation(toQ, toR);
         const captureSymbol = isCapture ? 'x' : '';
+        const promotionSymbol = promotionType ? '=' + pieceNotation({ type: promotionType }) : '';
         
         if (piece.type === 'pawn') {
-            if (isCapture && fromSquare) {
-                return fromSquare[0] + captureSymbol + toSquare;
+            if (isCapture) {
+                // For pawn captures, use the file letter + x + destination
+                const fromFile = fromSquare.match(/([A-K])/)?.[1] || '';
+                return fromFile + captureSymbol + toSquare + promotionSymbol;
             }
-            return toSquare || 'P' + (toQ + ',' + toR);
+            // For pawn moves, just show destination
+            return toSquare + promotionSymbol;
         }
         
-        if (!fromSquare || !toSquare) {
-            return pieceSymbol + '?';
-        }
-        
-        return pieceSymbol + fromSquare + captureSymbol + toSquare;
+        // For pieces, show piece symbol + destination (simplified notation)
+        // Standard chess notation doesn't include from-square unless ambiguous
+        return pieceSymbol + captureSymbol + toSquare + promotionSymbol;
     }
 
     function buildInitialPieces() {
@@ -1104,6 +1181,57 @@
         sidebar.appendChild(movesList);
 
         return sidebar;
+    }
+
+    function buildPromotionModal() {
+        const modal = document.createElement('div');
+        modal.id = 'promotion-modal';
+        modal.className = 'promotion-modal';
+        modal.style.display = 'none';
+
+        const overlay = document.createElement('div');
+        overlay.className = 'promotion-overlay';
+
+        const content = document.createElement('div');
+        content.className = 'promotion-content';
+
+        const title = document.createElement('h3');
+        title.className = 'promotion-title';
+        title.textContent = 'Choose promotion piece:';
+
+        const piecesContainer = document.createElement('div');
+        piecesContainer.className = 'promotion-pieces';
+
+        const promotionPieces = ['queen', 'rook', 'bishop', 'knight'];
+        
+        promotionPieces.forEach(pieceType => {
+            const pieceButton = document.createElement('button');
+            pieceButton.className = 'promotion-piece';
+            pieceButton.dataset.piece = pieceType;
+            
+            const pieceImg = document.createElement('img');
+            pieceImg.src = PIECE_SPRITES.white[pieceType];
+            pieceImg.alt = pieceType;
+            pieceImg.width = 48;
+            pieceImg.height = 48;
+            
+            const label = document.createElement('div');
+            label.className = 'promotion-label';
+            label.textContent = pieceType.charAt(0).toUpperCase() + pieceType.slice(1);
+            
+            pieceButton.appendChild(pieceImg);
+            pieceButton.appendChild(label);
+            pieceButton.addEventListener('click', () => handlePromotionChoice(pieceType));
+            
+            piecesContainer.appendChild(pieceButton);
+        });
+
+        content.appendChild(title);
+        content.appendChild(piecesContainer);
+        modal.appendChild(overlay);
+        modal.appendChild(content);
+
+        return modal;
     }
 
     function handleNewGameClick() {
@@ -1214,6 +1342,15 @@
     function clearHistory() {
         moveHistory.length = 0;
         currentMoveNumber = 1;
+        pendingPromotion = null;
+        hidePromotionModal();
+        // Clear coordinate maps when starting new game
+        if (positionToNotation.letterMap) {
+            positionToNotation.letterMap.clear();
+            positionToNotation.numberMap.clear();
+            positionToNotation.letterMap = null;
+            positionToNotation.numberMap = null;
+        }
         updateHistoryDisplay();
     }
 

@@ -264,3 +264,80 @@ body {
 .move-notation:hover {
     background: rgba(60, 85, 200, 0.2);
 }
+
+.promotion-modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 1000;
+    display: none;
+}
+
+.promotion-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(4px);
+}
+
+.promotion-content {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: #ffffff;
+    border-radius: 16px;
+    border: 2px solid rgba(0, 0, 0, 0.08);
+    padding: 2rem;
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
+}
+
+.promotion-title {
+    font-size: 1.2rem;
+    font-weight: 700;
+    color: #111216;
+    margin-bottom: 1.5rem;
+    text-align: center;
+}
+
+.promotion-pieces {
+    display: flex;
+    gap: 1rem;
+    justify-content: center;
+}
+
+.promotion-piece {
+    border: none;
+    border-radius: 12px;
+    background: #f4f7ff;
+    padding: 1rem;
+    cursor: pointer;
+    transition: all 180ms ease;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.5rem;
+    min-width: 80px;
+}
+
+.promotion-piece:hover {
+    background: #3c55c8;
+    transform: translateY(-2px);
+    box-shadow: 0 8px 16px rgba(60, 85, 200, 0.3);
+}
+
+.promotion-piece:hover .promotion-label {
+    color: #ffffff;
+}
+
+.promotion-label {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: #111216;
+    transition: color 180ms ease;
+}
