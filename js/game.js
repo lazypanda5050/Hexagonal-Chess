@@ -1466,15 +1466,11 @@
         currentTurn = piece.color === 'white' ? 'black' : 'white';
         if (pendingFlipTimeoutId !== null) {
             clearTimeout(pendingFlipTimeoutId);
+        }
+        pendingFlipTimeoutId = window.setTimeout(() => {
+            applyBoardOrientationForCurrentTurn();
             pendingFlipTimeoutId = null;
-        }
-        // Only flip if it's actually a different player's turn
-        if (piece.color !== currentTurn) {
-            pendingFlipTimeoutId = window.setTimeout(() => {
-                applyBoardOrientationForCurrentTurn();
-                pendingFlipTimeoutId = null;
-            }, BOARD_FLIP_DELAY);
-        }
+        }, BOARD_FLIP_DELAY);
         updateKingInCheckHighlight();
         checkForCheckmate();
     }
