@@ -1115,9 +1115,21 @@
         boardOccupancy.set(destinationKey, piece.id);
         updatePiecePosition(piece);
         
-	        const moveNotation = createMoveNotation(piece, fromQ, fromR, piece.q, piece.r, isCapture, move.castle, promotionType);
-	        addMoveToHistory(moveNotation, piece.color, piece, fromQ, fromR, piece.q, piece.r, isCapture, move.castle, promotionType);
-	        syncOnlineMoveIfNeeded(piece, fromQ, fromR, move, promotionType, captureId);
+		        const moveNotation = createMoveNotation(piece, fromQ, fromR, piece.q, piece.r, isCapture, move.castle, promotionType);
+		        addMoveToHistory(
+		            moveNotation,
+		            piece.color,
+		            piece,
+		            fromQ,
+		            fromR,
+		            piece.q,
+		            piece.r,
+		            isCapture,
+		            move.castle,
+		            promotionType,
+		            captureId ?? null
+		        );
+		        syncOnlineMoveIfNeeded(piece, fromQ, fromR, move, promotionType, captureId);
 	        
 	        highlightLastMove(fromQ, fromR, piece.q, piece.r);
 	        clearSelection();
@@ -1933,21 +1945,33 @@
         pawnStartingSquares.black.clear();
     }
 
-    function addMoveToHistory(notation, color, piece, fromQ, fromR, toQ, toR, isCapture, castleInfo, promotionType) {
-        moveHistory.push({
-            notation: notation,
-            color: color,
-            moveNumber: currentMoveNumber,
-            piece: { ...piece }, // Store piece data
-            fromQ: fromQ,
-            fromR: fromR,
-            toQ: toQ,
-            toR: toR,
-            isCapture: isCapture,
-            castle: castleInfo,
-            promotionType: promotionType,
-            capturedPieceId: isCapture ? boardOccupancy.get(coordKey(toQ, toR)) : null
-        });
+	    function addMoveToHistory(
+	        notation,
+	        color,
+	        piece,
+	        fromQ,
+	        fromR,
+	        toQ,
+	        toR,
+	        isCapture,
+	        castleInfo,
+	        promotionType,
+	        capturedPieceId
+	    ) {
+	        moveHistory.push({
+	            notation: notation,
+	            color: color,
+	            moveNumber: currentMoveNumber,
+	            piece: { ...piece }, // Store piece data
+	            fromQ: fromQ,
+	            fromR: fromR,
+	            toQ: toQ,
+	            toR: toR,
+	            isCapture: isCapture,
+	            castle: castleInfo,
+	            promotionType: promotionType,
+	            capturedPieceId: isCapture ? (capturedPieceId ?? null) : null
+	        });
         
         if (color === 'black') {
             currentMoveNumber++;
