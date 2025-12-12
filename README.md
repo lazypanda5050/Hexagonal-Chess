@@ -109,7 +109,7 @@ Hexagonal-Chess/
 
 ### GitHub Pages
 
-This repo is hosted on github pages. you cna ecces it [here](https://lazypanda5050.github.io/Hexagonal-Chess/)
+This repo is hosted on github pages. you cna access it [HERE](https://lazypanda5050.github.io/Hexagonal-Chess/)
 
 ## Controls
 
