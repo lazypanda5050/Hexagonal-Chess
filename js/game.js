@@ -2,6 +2,7 @@
     const BOARD_RADIUS = 5; // Creates 91 tiles for Gliński's board
     const SQRT3 = Math.sqrt(3);
     const BOARD_FLIP_DELAY = 676; // Delay for board flip animation in milliseconds
+    const HISTORY_MODE_ENABLED = false;
 
     const appRoot = document.getElementById('app');
     if (!appRoot) {
@@ -199,8 +200,10 @@
     appRoot.appendChild(promotionModal);
     appRoot.appendChild(onlineGameModal);
 
-    // Add keyboard event listener for history navigation
-    document.addEventListener('keydown', handleKeyDown);
+	    // Add keyboard event listener for history navigation (currently disabled).
+	    if (HISTORY_MODE_ENABLED) {
+	        document.addEventListener('keydown', handleKeyDown);
+	    }
 
     initEmptyBoard();
 
