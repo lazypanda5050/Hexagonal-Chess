@@ -44,6 +44,7 @@
     let currentMoveNumber = 1;
     let pendingPromotion = null;
     let isGameOver = false;
+    let currentHistoryIndex = -1; // -1 means viewing the latest position
 
     const PIECE_SPRITES = {
         white: {
@@ -175,6 +176,9 @@
     appRoot.appendChild(promotionModal);
     appRoot.appendChild(onlineGameModal);
 
+    // Add keyboard event listener for history navigation
+    document.addEventListener('keydown', handleKeyDown);
+
     initEmptyBoard();
 
     function buildTiles() {
@@ -296,6 +300,15 @@
     function handleTileClick(q, r) {
         if (isGameOver) {
             return;
+        }
+        
+        // Exit history mode when making a move
+        if (currentHistoryIndex !== -1) {
+            // Restore the actual game state first
+            replayToPosition(moveHistory.length);
+            currentHistoryIndex = -1;
+            updateHistoryHighlight();
+            isGameOver = checkForGameOverState();
         }
         const move = availableMoves.find(
             entry =>
@@ -484,30 +497,29 @@
         const directions = [...STRAIGHT_DIRECTIONS, ...BISHOP_DIRECTIONS];
 
         directions.forEach(dir => {
-            for (let i = 1; i <= BOARD_RADIUS; i += 1) {
-                const target = {
-                    q: piece.q + dir.q * i,
-                    r: piece.r + dir.r * i
-                };
-                const targetKey = coordKey(target.q, target.r);
-
-                if (!tilePositions.has(targetKey)) {
-                    break;
-                }
-
-                const occupantId = boardOccupancy.get(targetKey);
+            let q = piece.q + dir.q;
+            let r = piece.r + dir.r;
+            let steps = 0;
+            while (tilePositions.has(coordKey(q, r))) {
+                steps++;
+                const key = coordKey(q, r);
+                const occupantId = boardOccupancy.get(key);
                 if (!occupantId) {
-                    moves.push({ ...target });
+                    moves.push({ q, r });
                 } else {
                     const occupant = piecesById.get(occupantId);
                     if (occupant && occupant.color !== piece.color && !occupant.isCaptured) {
-                        moves.push({ ...target, captureId: occupantId });
+                        moves.push({ q, r, captureId: occupantId });
                     }
                     break;
                 }
+                q += dir.q;
+                r += dir.r;
             }
+            console.log(`Queen at (${piece.q},${piece.r}): direction ${JSON.stringify(dir)} - ${steps} steps`);
         });
 
+        console.log(`Total moves for queen: ${moves.length}`);
         return moves;
     }
 
@@ -1048,7 +1060,7 @@
         updatePiecePosition(piece);
         
         const moveNotation = createMoveNotation(piece, fromQ, fromR, piece.q, piece.r, isCapture, move.castle, promotionType);
-        addMoveToHistory(moveNotation, piece.color);
+        addMoveToHistory(moveNotation, piece.color, piece, fromQ, fromR, piece.q, piece.r, isCapture, move.castle, promotionType);
         
         highlightLastMove(fromQ, fromR, piece.q, piece.r);
         clearSelection();
@@ -1438,7 +1450,17 @@
 
         const header = document.createElement('div');
         header.className = 'history-header';
-        header.textContent = 'Moves';
+        
+        const headerText = document.createElement('span');
+        headerText.textContent = 'Moves';
+        header.appendChild(headerText);
+        
+        const historyIndicator = document.createElement('span');
+        historyIndicator.id = 'history-indicator';
+        historyIndicator.className = 'history-indicator';
+        historyIndicator.textContent = '(History Mode)';
+        historyIndicator.style.display = 'none';
+        header.appendChild(historyIndicator);
 
         const movesList = document.createElement('div');
         movesList.id = 'moves-list';
@@ -1673,6 +1695,11 @@
     }
 
     function checkForCheckmate() {
+        // Don't check for checkmate when viewing history
+        if (currentHistoryIndex !== -1) {
+            return;
+        }
+        
         const sideToMove = currentTurn;
         const inCheck = isKingInCheck(sideToMove);
         const hasMoves = hasAnyLegalMoves(sideToMove);
@@ -1693,17 +1720,28 @@
         pawnStartingSquares.black.clear();
     }
 
-    function addMoveToHistory(notation, color) {
+    function addMoveToHistory(notation, color, piece, fromQ, fromR, toQ, toR, isCapture, castleInfo, promotionType) {
         moveHistory.push({
             notation: notation,
             color: color,
-            moveNumber: currentMoveNumber
+            moveNumber: currentMoveNumber,
+            piece: { ...piece }, // Store piece data
+            fromQ: fromQ,
+            fromR: fromR,
+            toQ: toQ,
+            toR: toR,
+            isCapture: isCapture,
+            castle: castleInfo,
+            promotionType: promotionType,
+            capturedPieceId: isCapture ? boardOccupancy.get(coordKey(toQ, toR)) : null
         });
         
         if (color === 'black') {
             currentMoveNumber++;
         }
         
+        // Reset history index to latest when new move is made
+        currentHistoryIndex = -1;
         updateHistoryDisplay();
     }
 
@@ -1746,9 +1784,187 @@
     function clearHistory() {
         moveHistory.length = 0;
         currentMoveNumber = 1;
+        currentHistoryIndex = -1;
         pendingPromotion = null;
         hidePromotionModal();
         updateHistoryDisplay();
+    }
+
+    function handleKeyDown(event) {
+        // Only handle arrow keys when no modal is shown and not typing in input fields
+        if (event.target.tagName === 'INPUT' || event.target.tagName === 'TEXTAREA') {
+            return;
+        }
+        
+        const modalVisible = document.getElementById('promotion-modal')?.style.display === 'block' ||
+                            document.getElementById('online-game-modal')?.style.display === 'flex';
+        
+        if (modalVisible) {
+            return;
+        }
+
+        if (event.key === 'ArrowLeft') {
+            event.preventDefault();
+            navigateHistory(-1);
+        } else if (event.key === 'ArrowRight') {
+            event.preventDefault();
+            navigateHistory(1);
+        }
+    }
+
+    function navigateHistory(direction) {
+        if (moveHistory.length === 0) return;
+
+        const newIndex = currentHistoryIndex + direction;
+        
+        // Clamp to valid range: -1 (latest) to moveHistory.length - 1 (first move)
+        const clampedIndex = Math.max(-1, Math.min(moveHistory.length - 1, newIndex));
+        
+        if (clampedIndex === currentHistoryIndex) {
+            return; // No change needed
+        }
+        
+        currentHistoryIndex = clampedIndex;
+        
+        if (currentHistoryIndex === -1) {
+            // Show the latest position - replay all moves
+            replayToPosition(moveHistory.length);
+            // Restore actual game state
+            isGameOver = checkForGameOverState();
+        } else {
+            // Show position up to currentHistoryIndex
+            replayToPosition(currentHistoryIndex + 1);
+            // When viewing history, we're not in a game over state
+            isGameOver = false;
+        }
+        
+        updateHistoryHighlight();
+    }
+
+    function checkForGameOverState() {
+        const sideToMove = currentTurn;
+        const inCheck = isKingInCheck(sideToMove);
+        const hasMoves = hasAnyLegalMoves(sideToMove);
+        
+        if (!hasMoves) {
+            if (inCheck) {
+                return true; // Checkmate
+            } else {
+                return true; // Stalemate
+            }
+        }
+        return false;
+    }
+
+    function replayToPosition(moveCount) {
+        // Reset board to starting position
+        initEmptyBoard();
+        const freshPieces = createInitialPieces();
+        placePieces(freshPieces);
+        currentTurn = 'white';
+        clearLastMoveHighlight();
+        clearSelection();
+        
+        // Replay moves up to moveCount
+        for (let i = 0; i < moveCount && i < moveHistory.length; i++) {
+            const move = moveHistory[i];
+            
+            // Find the piece that made this move
+            const pieceId = move.piece.id;
+            const piece = piecesById.get(pieceId);
+            
+            if (!piece) continue;
+            
+            // Handle capture if there was one
+            if (move.isCapture && move.capturedPieceId) {
+                const capturedPiece = piecesById.get(move.capturedPieceId);
+                if (capturedPiece) {
+                    const capturedKey = coordKey(capturedPiece.q, capturedPiece.r);
+                    boardOccupancy.delete(capturedKey);
+                    capturedPiece.isCaptured = true;
+                    if (capturedPiece.element?.parentNode) {
+                        capturedPiece.element.parentNode.removeChild(capturedPiece.element);
+                    }
+                }
+            }
+            
+            // Handle castling
+            if (move.castle) {
+                const rook = piecesById.get(move.castle.rookId ?? '');
+                if (rook && !rook.isCaptured) {
+                    const rookFromKey = coordKey(rook.q, rook.r);
+                    boardOccupancy.delete(rookFromKey);
+                    rook.q = move.castle.rookToQ;
+                    rook.r = move.castle.rookToR;
+                    rook.hasMoved = true;
+                    const rookDestinationKey = coordKey(rook.q, rook.r);
+                    boardOccupancy.set(rookDestinationKey, rook.id);
+                    updatePiecePosition(rook);
+                }
+            }
+            
+            // Handle promotion
+            if (move.promotionType) {
+                piece.type = move.promotionType;
+                piece.element.src = PIECE_SPRITES[piece.color][move.promotionType];
+                piece.element.alt = `${piece.color} ${move.promotionType}`;
+            }
+            
+            // Move the piece
+            const fromKey = coordKey(piece.q, piece.r);
+            boardOccupancy.delete(fromKey);
+            
+            piece.q = move.toQ;
+            piece.r = move.toR;
+            piece.hasMoved = true;
+            
+            const destinationKey = coordKey(piece.q, piece.r);
+            boardOccupancy.set(destinationKey, piece.id);
+            updatePiecePosition(piece);
+            
+            // Update turn
+            currentTurn = move.color === 'white' ? 'black' : 'white';
+            
+            // Highlight the last move if this is the final move being replayed
+            if (i === moveCount - 1) {
+                highlightLastMove(move.fromQ, move.fromR, move.toQ, move.toR);
+            }
+        }
+        
+        // Update king in check highlight
+        updateKingInCheckHighlight();
+    }
+
+    function updateHistoryHighlight() {
+        const movesList = document.getElementById('moves-list');
+        const historyIndicator = document.getElementById('history-indicator');
+        if (!movesList) return;
+        
+        // Remove all existing highlights
+        movesList.querySelectorAll('.move-notation').forEach(el => {
+            el.classList.remove('history-current');
+        });
+        
+        // Show/hide history indicator
+        if (historyIndicator) {
+            if (currentHistoryIndex >= 0) {
+                historyIndicator.style.display = 'inline';
+                historyIndicator.style.marginLeft = '0.5rem';
+                historyIndicator.style.color = '#ff6b35';
+                historyIndicator.style.fontWeight = '600';
+                historyIndicator.style.fontSize = '0.85rem';
+            } else {
+                historyIndicator.style.display = 'none';
+            }
+        }
+        
+        // Add highlight to current position
+        if (currentHistoryIndex >= 0) {
+            const moveElements = movesList.querySelectorAll('.move-notation');
+            if (moveElements[currentHistoryIndex]) {
+                moveElements[currentHistoryIndex].classList.add('history-current');
+            }
+        }
     }
 
 
