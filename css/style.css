@@ -519,6 +519,58 @@ body {
     border: 1px solid rgba(0, 0, 0, 0.08);
 }
 
+.online-game-lobby {
+    margin: 1.5rem 0;
+    padding: 1rem;
+    border-radius: 12px;
+    background: #f4f7ff;
+    display: grid;
+    gap: 0.5rem;
+    justify-items: center;
+}
+
+.online-game-lobby-label {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: #3c55c8;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+}
+
+.online-game-lobby-id {
+    font-size: 1.6rem;
+    font-weight: 800;
+    color: #111216;
+    letter-spacing: 0.12em;
+    padding: 0.25rem 0.5rem;
+    background: #ffffff;
+    border-radius: 8px;
+    border: 1px dashed rgba(0, 0, 0, 0.15);
+    min-width: 10ch;
+}
+
+.online-game-copy {
+    border: none;
+    border-radius: 10px;
+    background: #3c55c8;
+    color: #ffffff;
+    font-weight: 700;
+    padding: 0.6rem 1rem;
+    cursor: pointer;
+    transition: background-color 140ms ease, transform 140ms ease;
+}
+
+.online-game-copy[disabled] {
+    opacity: 0.6;
+    cursor: not-allowed;
+    transform: none;
+}
+
+.online-game-copy:not([disabled]):hover {
+    background: #2f47b4;
+    transform: translateY(-1px);
+}
+
 .online-game-title {
     font-size: 1.5rem;
     font-weight: 700;

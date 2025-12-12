@@ -9,6 +9,8 @@
     }
 
     let authenticatedUser = null;
+    let firebaseAppInstance = null;
+    let firebaseDatabaseInstance = null;
     let newGameNoticeTimeoutId = null;
 
     const authUI = buildAuthPopup();
@@ -41,9 +43,11 @@
     const highlightedTiles = [];
     const lastMoveTiles = [];
     const moveHistory = [];
-    let currentMoveNumber = 1;
-    let pendingPromotion = null;
-    let isGameOver = false;
+	    let currentMoveNumber = 1;
+	    let pendingPromotion = null;
+	    let isGameOver = false;
+	    let activeLobbyId = null;
+	    let onlineModalAction = 'close';
 
     const PIECE_SPRITES = {
         white: {
@@ -1383,6 +1387,11 @@
         onlineOption.textContent = 'Create Online Game';
         select.appendChild(onlineOption);
 
+        const joinOption = document.createElement('option');
+        joinOption.value = 'join-online';
+        joinOption.textContent = 'Join Online Lobby';
+        select.appendChild(joinOption);
+
         select.addEventListener('change', handleNewGameSelection);
 
         topRow.appendChild(newGameButton);
@@ -1515,32 +1524,71 @@
 
         const title = document.createElement('h3');
         title.className = 'online-game-title';
-        title.textContent = 'Create Online Game';
+        title.textContent = 'Online Game Lobby';
 
         const description = document.createElement('p');
         description.className = 'online-game-description';
-        description.textContent = 'Thanks for signing in! Online multiplayer setup is coming soon.';
+        description.id = 'online-game-description';
+        description.textContent = 'Create a lobby to share with a friend.';
 
-        const closeButton = document.createElement('button');
-        closeButton.type = 'button';
-        closeButton.className = 'online-game-close';
-        closeButton.textContent = 'Close';
+        const lobbyInfo = document.createElement('div');
+        lobbyInfo.className = 'online-game-lobby';
 
-        const closeModal = () => {
-            hideOnlineGameModal();
-        };
+        const lobbyLabel = document.createElement('div');
+        lobbyLabel.className = 'online-game-lobby-label';
+        lobbyLabel.textContent = 'Lobby ID';
 
-        closeButton.addEventListener('click', closeModal);
-        overlay.addEventListener('click', closeModal);
+        const lobbyId = document.createElement('div');
+        lobbyId.className = 'online-game-lobby-id';
+        lobbyId.id = 'online-game-lobby-id';
+        lobbyId.textContent = '';
 
-        content.appendChild(title);
-        content.appendChild(description);
-        content.appendChild(closeButton);
-        modal.appendChild(overlay);
-        modal.appendChild(content);
+        const copyButton = document.createElement('button');
+        copyButton.type = 'button';
+        copyButton.className = 'online-game-copy';
+        copyButton.id = 'online-game-copy';
+        copyButton.textContent = 'Copy ID';
+        copyButton.disabled = true;
+        copyButton.addEventListener('click', () => {
+            const idText = lobbyId.textContent;
+            if (!idText) return;
+            if (navigator?.clipboard?.writeText) {
+                navigator.clipboard.writeText(idText).catch(() => {});
+            } else {
+                window.prompt('Copy this lobby ID:', idText);
+            }
+        });
 
-        return modal;
-    }
+        lobbyInfo.appendChild(lobbyLabel);
+        lobbyInfo.appendChild(lobbyId);
+        lobbyInfo.appendChild(copyButton);
+
+	        const actionButton = document.createElement('button');
+	        actionButton.type = 'button';
+	        actionButton.className = 'online-game-close';
+	        actionButton.id = 'online-game-action';
+	        actionButton.textContent = 'Close';
+
+	        const handleAction = () => {
+	            if (onlineModalAction === 'cancel') {
+	                cancelOnlineLobby();
+	                return;
+	            }
+	            hideOnlineGameModal();
+	        };
+
+	        actionButton.addEventListener('click', handleAction);
+	        overlay.addEventListener('click', handleAction);
+
+	        content.appendChild(title);
+	        content.appendChild(description);
+	        content.appendChild(lobbyInfo);
+	        content.appendChild(actionButton);
+	        modal.appendChild(overlay);
+	        modal.appendChild(content);
+
+	        return modal;
+	    }
 
     function showGameOverOverlay(message) {
         const overlay = document.getElementById('game-over-overlay');
@@ -1597,7 +1645,21 @@
                 return;
             }
             hideNewGameNotice();
-            showOnlineGameModal();
+            createOnlineGameLobby();
+            return;
+        }
+
+        if (mode === 'join-online') {
+            if (!authenticatedUser) {
+                showNewGameNotice('Please sign in to join an online lobby.');
+                return;
+            }
+            hideNewGameNotice();
+            const lobbyId = window.prompt('Enter Lobby ID to join:');
+            if (!lobbyId) {
+                return;
+            }
+            joinOnlineLobby(lobbyId.trim().toUpperCase());
         }
     }
 
@@ -1794,6 +1856,269 @@
         modal.style.display = 'none';
     }
 
+	    function setOnlineModalState({ description, lobbyId, canCopy } = {}) {
+	        const descriptionEl = document.getElementById('online-game-description');
+	        const lobbyIdEl = document.getElementById('online-game-lobby-id');
+	        const copyButton = document.getElementById('online-game-copy');
+        if (descriptionEl && typeof description === 'string') {
+            descriptionEl.textContent = description;
+        }
+        if (lobbyIdEl && typeof lobbyId === 'string') {
+            lobbyIdEl.textContent = lobbyId;
+        }
+        if (copyButton && typeof canCopy === 'boolean') {
+            copyButton.disabled = !canCopy;
+	        }
+	    }
+
+	    function setOnlineModalAction(action) {
+	        onlineModalAction = action === 'cancel' ? 'cancel' : 'close';
+	        const actionButton = document.getElementById('online-game-action');
+	        if (actionButton) {
+	            actionButton.textContent = onlineModalAction === 'cancel' ? 'Cancel Lobby' : 'Close';
+	        }
+	    }
+
+    function generateLobbyId() {
+        const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+        const length = Math.floor(Math.random() * 5) + 6; // 6-10 chars
+        let id = '';
+        for (let i = 0; i < length; i += 1) {
+            id += chars.charAt(Math.floor(Math.random() * chars.length));
+        }
+        return id;
+    }
+
+    function serializeBoardState() {
+        const pieces = [];
+        piecesById.forEach(piece => {
+            pieces.push({
+                id: piece.id,
+                type: piece.type,
+                color: piece.color,
+                q: piece.q,
+                r: piece.r,
+                hasMoved: piece.hasMoved,
+                isCaptured: piece.isCaptured
+            });
+        });
+        return {
+            boardRadius: BOARD_RADIUS,
+            currentTurn,
+            pieces,
+            moveHistory: []
+        };
+    }
+
+	    function createOnlineGameLobby() {
+	        if (!ensureFirebaseDatabase()) {
+	            showNewGameNotice('Realtime Database not initialized.');
+	            return;
+	        }
+        // Ensure a fresh starting position for the lobby.
+        currentTurn = 'white';
+        isGameOver = false;
+        applyBoardOrientationForCurrentTurn();
+        clearHistory();
+        resetBoard();
+        hideGameOverOverlay();
+
+	        const lobbyId = generateLobbyId();
+	        activeLobbyId = lobbyId;
+	        const lobbyRef = firebaseDatabaseInstance.ref(`lobbies/${lobbyId}`);
+        const lobbyData = {
+            createdAt: firebase.database.ServerValue.TIMESTAMP,
+            status: 'waiting',
+            host: {
+                uid: authenticatedUser.uid,
+                displayName: authenticatedUser.displayName || 'Host',
+                email: authenticatedUser.email || null
+            },
+            game: serializeBoardState()
+        };
+
+	        showOnlineGameModal();
+	        setOnlineModalAction('cancel');
+	        setOnlineModalState({
+	            description: 'Creating lobby…',
+	            lobbyId: lobbyId,
+	            canCopy: false
+	        });
+
+        lobbyRef
+            .set(lobbyData)
+            .then(() => {
+                setOnlineModalState({
+                    description: 'Lobby created! Share this ID with a friend.',
+                    lobbyId: lobbyId,
+                    canCopy: true
+                });
+            })
+            .catch(error => {
+                console.error('Failed to create lobby:', error);
+                activeLobbyId = null;
+                setOnlineModalState({
+                    description: 'Failed to create lobby. Please try again.',
+                    lobbyId: '',
+                    canCopy: false
+                });
+            });
+    }
+
+    function applyBoardState(state) {
+        if (!state || !Array.isArray(state.pieces)) {
+            return;
+        }
+        initEmptyBoard();
+        // Restore pieces from state.
+        const pieces = state.pieces.map(piece => ({
+            id: piece.id,
+            type: piece.type,
+            color: piece.color,
+            q: piece.q,
+            r: piece.r,
+            hasMoved: !!piece.hasMoved,
+            initialQ: piece.q,
+            initialR: piece.r,
+            element: null,
+            isCaptured: !!piece.isCaptured
+        }));
+        // Keep counter ahead of any numeric ids to avoid collisions.
+        pieceIdCounter = pieces.length;
+        placePieces(pieces);
+
+        currentTurn = state.currentTurn || 'white';
+        pendingPromotion = null;
+        isGameOver = false;
+        clearHistory();
+        applyBoardOrientationForCurrentTurn();
+    }
+
+		    function joinOnlineLobby(lobbyId) {
+		        if (!ensureFirebaseDatabase()) {
+		            showNewGameNotice('Realtime Database not initialized.');
+		            return;
+		        }
+		        if (!lobbyId) {
+		            return;
+		        }
+
+		        const lobbyRef = firebaseDatabaseInstance.ref(`lobbies/${lobbyId}`);
+
+		        showOnlineGameModal();
+		        setOnlineModalAction('close');
+		        setOnlineModalState({
+		            description: 'Joining lobby…',
+		            lobbyId,
+		            canCopy: false
+		        });
+
+		        const statusRef = lobbyRef.child('status');
+		        const guestData = {
+		            uid: authenticatedUser.uid,
+		            displayName: authenticatedUser.displayName || 'Guest',
+		            email: authenticatedUser.email || null,
+		            joinedAt: firebase.database.ServerValue.TIMESTAMP
+		        };
+
+		        // Ensure the lobby exists before attempting to claim it, then atomically
+		        // flip status from waiting -> active (treat missing status as joinable).
+		        lobbyRef
+		            .once('value')
+		            .then(snapshot => {
+		                const lobby = snapshot.val();
+		                if (!lobby) {
+		                    throw new Error('Lobby not found.');
+		                }
+		                return statusRef.transaction(status => {
+		                    const normalized = typeof status === 'string' ? status.trim().toLowerCase() : null;
+		                    if (!normalized || normalized === 'waiting') {
+		                        return 'active';
+		                    }
+		                    return; // abort
+		                });
+		            })
+		            .then(result => {
+		                if (!result.committed) {
+		                    throw new Error('Lobby was already taken.');
+		                }
+		                // Set guest info separately to avoid overwriting lobby.
+		                return lobbyRef.child('guest').set(guestData);
+		            })
+		            .then(() => lobbyRef.once('value'))
+		            .then(snapshot => {
+		                const lobby = snapshot.val();
+		                if (!lobby) {
+		                    throw new Error('Lobby not found.');
+		                }
+		                activeLobbyId = lobbyId;
+		                if (lobby.game) {
+		                    applyBoardState(lobby.game);
+		                }
+		                setOnlineModalState({
+		                    description: 'Joined lobby. Game is linked (moves not synced yet).',
+		                    lobbyId,
+		                    canCopy: true
+		                });
+		            })
+		            .catch(error => {
+		                console.error('Failed to join lobby:', error);
+		                activeLobbyId = null;
+		                setOnlineModalState({
+		                    description: error.message || 'Failed to join lobby.',
+		                    lobbyId: '',
+		                    canCopy: false
+		                });
+		            });
+		    }
+
+	    function cancelOnlineLobby() {
+	        const lobbyIdToDelete = activeLobbyId;
+	        activeLobbyId = null;
+	        setOnlineModalAction('close');
+
+	        setOnlineModalState({
+	            description: 'Create a lobby to share with a friend.',
+	            lobbyId: '',
+	            canCopy: false
+	        });
+
+	        if (!lobbyIdToDelete || !ensureFirebaseDatabase()) {
+	            hideOnlineGameModal();
+	            return;
+	        }
+
+	        firebaseDatabaseInstance
+	            .ref(`lobbies/${lobbyIdToDelete}`)
+	            .remove()
+	            .catch(error => {
+	                console.warn('Failed to delete lobby:', error);
+	            })
+	            .finally(() => {
+	                hideOnlineGameModal();
+	            });
+	    }
+
+    function ensureFirebaseDatabase() {
+        if (firebaseDatabaseInstance) {
+            return true;
+        }
+        if (!window.firebase || !firebase.database) {
+            return false;
+        }
+        try {
+            const app =
+                firebaseAppInstance ||
+                (firebase.apps && firebase.apps.length ? firebase.app() : null);
+            firebaseDatabaseInstance = app ? firebase.database(app) : firebase.database();
+            return !!firebaseDatabaseInstance;
+        } catch (error) {
+            console.warn('Realtime Database unavailable:', error);
+            firebaseDatabaseInstance = null;
+            return false;
+        }
+    }
+
     function showNewGameNotice(message) {
         const notice = document.getElementById('new-game-notice');
         if (!notice) {
@@ -1909,6 +2234,9 @@
             console.error('Firebase initialization failed:', error);
             return;
         }
+        firebaseAppInstance = firebaseApp;
+        // Database SDK might not be loaded on every host (e.g., bookmarklet). Lazy init later too.
+        ensureFirebaseDatabase();
 
         const auth = firebase.auth(firebaseApp);
         const provider = new firebase.auth.GoogleAuthProvider();
