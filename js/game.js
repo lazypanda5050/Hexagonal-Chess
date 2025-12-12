@@ -1040,7 +1040,11 @@
 	            clearSelection();
 	            return;
 	        }
-	        if (onlineSession?.lobbyId && onlineSession?.myColor && piece.color !== onlineSession.myColor) {
+	        if (
+	            onlineSession?.lobbyId &&
+	            (onlineSession?.myColor === 'white' || onlineSession?.myColor === 'black') &&
+	            piece.color !== onlineSession.myColor
+	        ) {
 	            clearSelection();
 	            return;
 	        }
@@ -1082,7 +1086,10 @@
 	                if (!canMakeOnlineMoveNow()) {
 	                    return;
 	                }
-	                if (onlineSession?.myColor && piece.color !== onlineSession.myColor) {
+	                if (
+	                    (onlineSession?.myColor === 'white' || onlineSession?.myColor === 'black') &&
+	                    piece.color !== onlineSession.myColor
+	                ) {
 	                    return;
 	                }
 	            }
@@ -1165,7 +1172,11 @@
 	                showNewGameNotice('Waiting for opponent...');
 	                return;
 	            }
-	            if (onlineSession?.myColor && piece?.color && piece.color !== onlineSession.myColor) {
+	            if (
+	                (onlineSession?.myColor === 'white' || onlineSession?.myColor === 'black') &&
+	                piece?.color &&
+	                piece.color !== onlineSession.myColor
+	            ) {
 	                hidePromotionModal();
 	                pendingPromotion = null;
 	                return;
@@ -1195,13 +1206,16 @@
 		            return;
 		        }
 		        const myColor = onlineSession?.myColor;
-		        if (!myColor || myColor !== piece.color) {
+		        if (!myColor) {
+		            return;
+		        }
+		        if (myColor !== 'both' && myColor !== piece.color) {
 		            return;
 		        }
 		        if (!authenticatedUser?.uid) {
 		            return;
 		        }
-		        const expectedUid = expectedUidForColor(myColor);
+		        const expectedUid = expectedUidForColor(piece.color);
 		        if (!expectedUid || expectedUid !== authenticatedUser.uid) {
 		            return;
 		        }
@@ -1847,18 +1861,21 @@
 	        updateOnlinePlayerLabels();
 	    }
 
-	    function applyBoardOrientationForCurrentTurn() {
-	        const isBlackTurn = currentTurn === 'black';
-	        boardContainer.classList.toggle('board-turn-black', isBlackTurn);
+		    function applyBoardOrientationForCurrentTurn() {
+		        const isBlackTurn = currentTurn === 'black';
+		        boardContainer.classList.toggle('board-turn-black', isBlackTurn);
 
-	        if (onlineSession && onlineSession.lobbyId) {
-	            // Online games should not auto-flip; only the Flip Board button changes orientation.
-	            return;
-	        }
-	        const shouldBeFlipped = isBlackTurn;
-	        
-	        // Force a transition by first removing the class, then adding it
-	        if (isBoardFlipped === shouldBeFlipped) {
+		        if (onlineSession && onlineSession.lobbyId) {
+		            // Online games should not auto-flip; only the Flip Board button changes orientation.
+		            // Exception: self-play (same UID for both colors) behaves like local play.
+		            if (onlineSession.myColor !== 'both') {
+		                return;
+		            }
+		        }
+		        const shouldBeFlipped = isBlackTurn;
+		        
+		        // Force a transition by first removing the class, then adding it
+		        if (isBoardFlipped === shouldBeFlipped) {
 	            // No change needed, but force animation anyway
 	            boardContainer.classList.remove('board-flipped');
 	            void boardContainer.offsetWidth; // Force reflow
@@ -2325,6 +2342,17 @@
 		            if (!isWhite && !isBlack) {
 		                return null;
 		            }
+		            if (isWhite && isBlack) {
+		                return {
+		                    myColor: 'both',
+		                    roles: {
+		                        whiteUid: roles.whiteUid,
+		                        blackUid: roles.blackUid,
+		                        whiteName: roles.whiteName || 'White',
+		                        blackName: roles.blackName || 'Black'
+		                    }
+		                };
+		            }
 		            return {
 		                myColor: isWhite ? 'white' : 'black',
 		                roles: {
@@ -2340,6 +2368,18 @@
 		        const guestUid = lobby?.guest?.uid;
 		        if (!hostUid || !guestUid || !user?.uid) {
 		            return null;
+		        }
+		        if (hostUid === user.uid && guestUid === user.uid) {
+		            const name = lobby.host?.displayName || lobby.host?.email || user.displayName || user.email || 'Player';
+		            return {
+		                myColor: 'both',
+		                roles: {
+		                    whiteUid: user.uid,
+		                    blackUid: user.uid,
+		                    whiteName: `${name} (White)`,
+		                    blackName: `${name} (Black)`
+		                }
+		            };
 		        }
 
 		        const hostName = lobby.host?.displayName || lobby.host?.email || 'Host';
@@ -2449,12 +2489,19 @@
 		        if (!myColor) {
 		            return false;
 		        }
-		        const expectedUid = expectedUidForColor(myColor);
-		        if (!expectedUid || expectedUid !== authenticatedUser.uid) {
-		            return false;
-		        }
-		        if (currentTurn !== myColor) {
-		            return false;
+		        if (myColor === 'both') {
+		            const expectedUid = expectedUidForColor(currentTurn);
+		            if (!expectedUid || expectedUid !== authenticatedUser.uid) {
+		                return false;
+		            }
+		        } else {
+		            const expectedUid = expectedUidForColor(myColor);
+		            if (!expectedUid || expectedUid !== authenticatedUser.uid) {
+		                return false;
+		            }
+		            if (currentTurn !== myColor) {
+		                return false;
+		            }
 		        }
 		        return true;
 		    }
