@@ -166,18 +166,24 @@
 	    const boardContainer = document.createElement('div');
 	    boardContainer.id = 'board-container';
 	
-	    const playerLabelTop = document.createElement('div');
-	    playerLabelTop.id = 'player-label-top';
-	    playerLabelTop.className = 'player-label player-label-top';
-	    playerLabelTop.hidden = true;
-	
-	    const playerLabelBottom = document.createElement('div');
-	    playerLabelBottom.id = 'player-label-bottom';
-	    playerLabelBottom.className = 'player-label player-label-bottom';
-	    playerLabelBottom.hidden = true;
-	
-	    boardContainer.appendChild(playerLabelTop);
-	    boardContainer.appendChild(playerLabelBottom);
+  const playerLabelTop = document.createElement('div');
+    playerLabelTop.id = 'player-label-top';
+    playerLabelTop.className = 'player-label player-label-top';
+    playerLabelTop.hidden = true;
+
+    const playerLabelBottom = document.createElement('div');
+    playerLabelBottom.id = 'player-label-bottom';
+    playerLabelBottom.className = 'player-label player-label-bottom';
+    playerLabelBottom.hidden = true;
+
+    const turnIndicator = document.createElement('div');
+    turnIndicator.id = 'turn-indicator';
+    turnIndicator.className = 'turn-indicator';
+    turnIndicator.hidden = true;
+
+    boardContainer.appendChild(playerLabelTop);
+    boardContainer.appendChild(playerLabelBottom);
+    boardContainer.appendChild(turnIndicator);
 	    boardContainer.appendChild(board);
 
     const gameOverOverlay = buildGameOverOverlay();
@@ -1816,19 +1822,20 @@
         flipBoard();
     }
 
-	    function startNewGame(mode) {
-	        if (mode === 'local') {
-	            clearOnlineSession();
-	            if (pendingFlipTimeoutId !== null) {
-	                clearTimeout(pendingFlipTimeoutId);
-	                pendingFlipTimeoutId = null;
-	            }
+function startNewGame(mode) {
+        if (mode === 'local') {
+            clearOnlineSession();
+            if (pendingFlipTimeoutId !== null) {
+                clearTimeout(pendingFlipTimeoutId);
+                pendingFlipTimeoutId = null;
+            }
             currentTurn = 'white';
             isGameOver = false;
             applyBoardOrientationForCurrentTurn();
             clearHistory();
             resetBoard();
             hideGameOverOverlay();
+            updateTurnIndicator();
             return;
         }
 
@@ -1869,11 +1876,18 @@
 		        boardContainer.classList.toggle('board-turn-black', isBlackTurn);
 
 		        if (onlineSession && onlineSession.lobbyId) {
-		            // Online games should not auto-flip; only the Flip Board button changes orientation.
-		            // Exception: self-play (same UID for both colors) behaves like local play.
+		            // In online games, always orient the board so the current player is at the bottom
 		            if (onlineSession.myColor !== 'both') {
+		                // For regular online games, keep the player's color at the bottom
+		                const shouldBeFlipped = onlineSession.myColor === 'black';
+		                if (isBoardFlipped !== shouldBeFlipped) {
+		                    isBoardFlipped = shouldBeFlipped;
+		                    boardContainer.classList.toggle('board-flipped', isBoardFlipped);
+		                    updateOnlinePlayerLabels();
+		                }
 		                return;
 		            }
+		            // For self-play (both colors), flip based on current turn
 		        }
 		        const shouldBeFlipped = isBlackTurn;
 		        
@@ -1894,12 +1908,27 @@
         if (pendingFlipTimeoutId !== null) {
             clearTimeout(pendingFlipTimeoutId);
         }
-        pendingFlipTimeoutId = window.setTimeout(() => {
+        
+        // Update turn indicator for online games
+        if (onlineSession && onlineSession.lobbyId) {
+            updateTurnIndicator();
+        }
+        
+        // In online multiplayer, don't flip the board - keep current player at bottom
+        if (onlineSession && onlineSession.lobbyId && onlineSession.myColor !== 'both') {
+            // Just update the turn indicator, but don't flip the board
             applyBoardOrientationForCurrentTurn();
-            pendingFlipTimeoutId = null;
-        }, BOARD_FLIP_DELAY);
-        updateKingInCheckHighlight();
-        checkForCheckmate();
+            updateKingInCheckHighlight();
+            checkForCheckmate();
+        } else {
+            // For local games or self-play, use the delayed flip animation
+            pendingFlipTimeoutId = window.setTimeout(() => {
+                applyBoardOrientationForCurrentTurn();
+                pendingFlipTimeoutId = null;
+            }, BOARD_FLIP_DELAY);
+            updateKingInCheckHighlight();
+            checkForCheckmate();
+        }
     }
 
     function clearKingInCheckHighlights() {
@@ -2286,35 +2315,68 @@
 	        pendingOnlineMovesByPly.clear();
 	    }
 
-		    function updateOnlinePlayerLabels() {
-		        const topEl = document.getElementById('player-label-top');
-		        const bottomEl = document.getElementById('player-label-bottom');
-		        if (!topEl || !bottomEl) {
-		            return;
-		        }
-		        if (!onlineSession || !onlineSession.roles) {
-		            topEl.hidden = true;
-		            bottomEl.hidden = true;
-		            topEl.textContent = '';
-		            bottomEl.textContent = '';
-		            return;
-		        }
-		        const whiteText = onlineSession.roles.whiteName ? `White: ${onlineSession.roles.whiteName}` : 'White';
-		        const blackText = onlineSession.roles.blackName ? `Black: ${onlineSession.roles.blackName}` : 'Black';
-		        const bottomText = isBoardFlipped ? blackText : whiteText;
-		        const topText = isBoardFlipped ? whiteText : blackText;
-		        bottomEl.textContent = bottomText;
-		        topEl.textContent = topText;
-		        topEl.hidden = false;
-		        bottomEl.hidden = false;
-		    }
+  function updateOnlinePlayerLabels() {
+        const topEl = document.getElementById('player-label-top');
+        const bottomEl = document.getElementById('player-label-bottom');
+        if (!topEl || !bottomEl) {
+            return;
+        }
+        if (!onlineSession || !onlineSession.roles) {
+            topEl.hidden = true;
+            bottomEl.hidden = true;
+            topEl.textContent = '';
+            bottomEl.textContent = '';
+            updateTurnIndicator();
+            return;
+        }
+        const whiteText = onlineSession.roles.whiteName ? `White: ${onlineSession.roles.whiteName}` : 'White';
+        const blackText = onlineSession.roles.blackName ? `Black: ${onlineSession.roles.blackName}` : 'Black';
+        const bottomText = isBoardFlipped ? blackText : whiteText;
+        const topText = isBoardFlipped ? whiteText : blackText;
+        bottomEl.textContent = bottomText;
+        topEl.textContent = topText;
+        topEl.hidden = false;
+        bottomEl.hidden = false;
+        updateTurnIndicator();
+    }
 
-		    function clearOnlineSession() {
-		        stopActiveLobbyListeners();
-		        onlineSession = null;
-		        activeLobbyId = null;
-		        updateOnlinePlayerLabels();
-		    }
+    function updateTurnIndicator() {
+        const turnEl = document.getElementById('turn-indicator');
+        if (!turnEl) {
+            return;
+        }
+        
+        if (!onlineSession || !onlineSession.roles) {
+            turnEl.hidden = true;
+            turnEl.textContent = '';
+            return;
+        }
+        
+        const currentTurnText = currentTurn === 'white' ? 'White' : 'Black';
+        const currentTurnName = currentTurn === 'white' ? onlineSession.roles.whiteName : onlineSession.roles.blackName;
+        const playerName = currentTurnName ? currentTurnName : currentTurnText;
+        
+        turnEl.textContent = `${currentTurnText}'s Turn (${playerName})`;
+        turnEl.hidden = false;
+        
+        // Highlight if it's the current player's turn
+        const myColor = onlineSession.myColor;
+        if (myColor && myColor !== 'both' && currentTurn === myColor) {
+            turnEl.style.background = 'rgba(76, 175, 80, 0.95)';
+            turnEl.style.boxShadow = '0 4px 12px rgba(76, 175, 80, 0.4)';
+        } else {
+            turnEl.style.background = 'rgba(60, 85, 200, 0.95)';
+            turnEl.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.3)';
+        }
+    }
+
+function clearOnlineSession() {
+        stopActiveLobbyListeners();
+        onlineSession = null;
+        activeLobbyId = null;
+        updateOnlinePlayerLabels();
+        updateTurnIndicator();
+    }
 
 		    function setOnlineSession(session) {
 		        onlineSession = session;
@@ -2438,6 +2500,7 @@
 		            if (derived) {
 		                const hasAppliedInitialOrientation = !!onlineSession?.hasAppliedInitialOrientation;
 		                if (!hasAppliedInitialOrientation) {
+		                    // Always orient the board so the current player is at the bottom
 		                    setBoardFlippedTo(derived.myColor === 'black');
 		                }
 		                setOnlineSession({
@@ -2800,6 +2863,7 @@
         isGameOver = false;
         clearHistory();
         applyBoardOrientationForCurrentTurn();
+        updateTurnIndicator();
     }
 
 			    function joinOnlineLobby(lobbyId) {
@@ -2926,6 +2990,7 @@
 				                        roles: derived.roles,
 				                        hasAppliedInitialOrientation: true
 				                    });
+				                    // Always orient the board so the current player is at the bottom
 				                    setBoardFlippedTo(myColor === 'black');
 				                }
 

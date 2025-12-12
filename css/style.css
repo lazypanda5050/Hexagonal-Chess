@@ -190,6 +190,27 @@ body {
     bottom: 0.75rem;
 }
 
+.turn-indicator {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    padding: 0.5rem 1rem;
+    border-radius: 12px;
+    background: rgba(60, 85, 200, 0.95);
+    color: #ffffff;
+    font-weight: 700;
+    font-size: 1rem;
+    letter-spacing: 0.02em;
+    z-index: 100;
+    user-select: none;
+    pointer-events: none;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    backdrop-filter: blur(4px);
+    text-align: center;
+    min-width: 160px;
+}
+
 #board-container.board-turn-black {
     background: #000000;
 }
