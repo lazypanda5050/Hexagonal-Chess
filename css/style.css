@@ -166,6 +166,30 @@ body {
     transition: background-color 220ms ease;
 }
 
+.player-label {
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 0.35rem 0.75rem;
+    border-radius: 999px;
+    background: rgba(17, 18, 22, 0.86);
+    color: #ffffff;
+    font-weight: 700;
+    font-size: 0.9rem;
+    letter-spacing: 0.02em;
+    z-index: 50;
+    user-select: none;
+    pointer-events: none;
+}
+
+.player-label-top {
+    top: 0.75rem;
+}
+
+.player-label-bottom {
+    bottom: 0.75rem;
+}
+
 #board-container.board-turn-black {
     background: #000000;
 }

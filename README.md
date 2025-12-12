@@ -97,7 +97,7 @@ Hexagonal-Chess/
 ### Firebase Setup
 1. Create a Firebase project at https://console.firebase.google.com
 2. Enable Realtime Database
-3. Update the Firebase configuration in `js/firebase.js`:
+3. Update the Firebase configuration in `js/firebase-config.js`:
 ```javascript
 this.firebaseConfig = {
     apiKey: "your-api-key",
@@ -108,6 +108,28 @@ this.firebaseConfig = {
     messagingSenderId: "123456789",
     appId: "1:123456789:web:abcdef"
 };
+```
+
+### Realtime Database Rules (Recommended)
+To prevent someone from writing moves on behalf of the other player, lock down your RTDB rules so only the assigned `whiteUid`/`blackUid` can write moves for their color (and only for the current turn).
+
+Example (adjust to your needs in the Firebase Console → Realtime Database → Rules):
+```json
+{
+  "rules": {
+    "lobbies": {
+      "$lobbyId": {
+        ".read": "auth != null",
+        "moves": {
+          "$ply": {
+            ".write": "auth != null && !data.exists() && newData.child('byUid').val() === auth.uid && ((newData.child('color').val() === 'white' && root.child('lobbies/' + $lobbyId + '/roles/whiteUid').val() === auth.uid) || (newData.child('color').val() === 'black' && root.child('lobbies/' + $lobbyId + '/roles/blackUid').val() === auth.uid)) && root.child('lobbies/' + $lobbyId + '/game/currentTurn').val() === newData.child('color').val()",
+            ".validate": "newData.hasChildren(['v','ply','byUid','color','nextTurn','pieceId','from','to','createdAt']) && newData.child('ply').val() == $ply"
+          }
+        }
+      }
+    }
+  }
+}
 ```
 
 ### Customization

@@ -45,9 +45,16 @@
     const moveHistory = [];
 	    let currentMoveNumber = 1;
 	    let pendingPromotion = null;
-	    let isGameOver = false;
-	    let activeLobbyId = null;
-	    let onlineModalAction = 'close';
+		    let isGameOver = false;
+		    let activeLobbyId = null;
+		    let onlineModalAction = 'close';
+		    let onlineSession = null;
+		    let activeLobbyRef = null;
+		    let activeLobbyValueListener = null;
+		    let activeMovesRef = null;
+		    let activeMovesChildAddedListener = null;
+		    const pendingOnlineMovesByPly = new Map();
+		    let isApplyingOnlineMove = false;
 
     const PIECE_SPRITES = {
         white: {
@@ -155,9 +162,22 @@
     renderTiles(tiles);
     renderLabels(tiles);
 
-    const boardContainer = document.createElement('div');
-    boardContainer.id = 'board-container';
-    boardContainer.appendChild(board);
+	    const boardContainer = document.createElement('div');
+	    boardContainer.id = 'board-container';
+	
+	    const playerLabelTop = document.createElement('div');
+	    playerLabelTop.id = 'player-label-top';
+	    playerLabelTop.className = 'player-label player-label-top';
+	    playerLabelTop.hidden = true;
+	
+	    const playerLabelBottom = document.createElement('div');
+	    playerLabelBottom.id = 'player-label-bottom';
+	    playerLabelBottom.className = 'player-label player-label-bottom';
+	    playerLabelBottom.hidden = true;
+	
+	    boardContainer.appendChild(playerLabelTop);
+	    boardContainer.appendChild(playerLabelBottom);
+	    boardContainer.appendChild(board);
 
     const gameOverOverlay = buildGameOverOverlay();
     boardContainer.appendChild(gameOverOverlay);
@@ -304,6 +324,12 @@
         if (isGameOver) {
             return;
         }
+
+	        if (!canMakeOnlineMoveNow()) {
+	            clearSelection();
+	            showNewGameNotice('Waiting for opponent...');
+	            return;
+	        }
         
         // Exit history mode when making a move
         if (currentHistoryIndex !== -1) {
@@ -1001,10 +1027,23 @@
         if (!selectedPieceId) {
             return;
         }
+	        if (!canMakeOnlineMoveNow()) {
+	            clearSelection();
+	            showNewGameNotice('Waiting for opponent...');
+	            return;
+	        }
         const piece = piecesById.get(selectedPieceId);
         if (!piece) {
             return;
         }
+	        if (piece.color !== currentTurn) {
+	            clearSelection();
+	            return;
+	        }
+	        if (onlineSession?.lobbyId && onlineSession?.myColor && piece.color !== onlineSession.myColor) {
+	            clearSelection();
+	            return;
+	        }
         const fromQ = piece.q;
         const fromR = piece.r;
         const fromKey = coordKey(piece.q, piece.r);
@@ -1024,16 +1063,30 @@
                 toQ: move.q,
                 toR: move.r,
                 isCapture: isCapture,
+	                captureId: move.captureId ?? null,
                 castle: move.castle
             };
             showPromotionModal(piece.color);
             return;
         }
 
-        completeMove(piece, fromQ, fromR, move, isCapture);
+        completeMove(piece, fromQ, fromR, move, isCapture, null, move.captureId ?? null);
     }
 
-    function completeMove(piece, fromQ, fromR, move, isCapture, promotionType = null) {
+    function completeMove(piece, fromQ, fromR, move, isCapture, promotionType = null, captureId = null) {
+	        if (!isApplyingOnlineMove) {
+	            if (piece.color !== currentTurn) {
+	                return;
+	            }
+	            if (onlineSession?.lobbyId) {
+	                if (!canMakeOnlineMoveNow()) {
+	                    return;
+	                }
+	                if (onlineSession?.myColor && piece.color !== onlineSession.myColor) {
+	                    return;
+	                }
+	            }
+	        }
         if (move.castle) {
             const rook = piecesById.get(move.castle.rookId ?? '');
             if (rook && !rook.isCaptured) {
@@ -1062,12 +1115,13 @@
         boardOccupancy.set(destinationKey, piece.id);
         updatePiecePosition(piece);
         
-        const moveNotation = createMoveNotation(piece, fromQ, fromR, piece.q, piece.r, isCapture, move.castle, promotionType);
-        addMoveToHistory(moveNotation, piece.color, piece, fromQ, fromR, piece.q, piece.r, isCapture, move.castle, promotionType);
-        
-        highlightLastMove(fromQ, fromR, piece.q, piece.r);
-        clearSelection();
-        endTurn(piece);
+	        const moveNotation = createMoveNotation(piece, fromQ, fromR, piece.q, piece.r, isCapture, move.castle, promotionType);
+	        addMoveToHistory(moveNotation, piece.color, piece, fromQ, fromR, piece.q, piece.r, isCapture, move.castle, promotionType);
+	        syncOnlineMoveIfNeeded(piece, fromQ, fromR, move, promotionType, captureId);
+	        
+	        highlightLastMove(fromQ, fromR, piece.q, piece.r);
+	        clearSelection();
+	        endTurn(piece);
     }
 
     function showPromotionModal(color) {
@@ -1090,14 +1144,104 @@
     function handlePromotionChoice(promotionType) {
         if (!pendingPromotion) return;
         
-        const { piece, fromQ, fromR, toQ, toR, isCapture, castle } = pendingPromotion;
+        const { piece, fromQ, fromR, toQ, toR, isCapture, captureId, castle } = pendingPromotion;
+
+	        if (onlineSession?.lobbyId) {
+	            if (!canMakeOnlineMoveNow()) {
+	                hidePromotionModal();
+	                pendingPromotion = null;
+	                showNewGameNotice('Waiting for opponent...');
+	                return;
+	            }
+	            if (onlineSession?.myColor && piece?.color && piece.color !== onlineSession.myColor) {
+	                hidePromotionModal();
+	                pendingPromotion = null;
+	                return;
+	            }
+	        }
+	        if (piece?.color && piece.color !== currentTurn) {
+	            hidePromotionModal();
+	            pendingPromotion = null;
+	            return;
+	        }
         
         hidePromotionModal();
         
-        completeMove(piece, fromQ, fromR, { q: toQ, r: toR, castle: castle }, isCapture, promotionType);
+        completeMove(piece, fromQ, fromR, { q: toQ, r: toR, castle: castle }, isCapture, promotionType, captureId ?? null);
         
         pendingPromotion = null;
     }
+
+		    function syncOnlineMoveIfNeeded(piece, fromQ, fromR, move, promotionType, captureId) {
+		        if (isApplyingOnlineMove) {
+		            return;
+		        }
+		        if (!onlineSession?.lobbyId) {
+		            return;
+		        }
+		        if (!ensureFirebaseDatabase()) {
+		            return;
+		        }
+		        const myColor = onlineSession?.myColor;
+		        if (!myColor || myColor !== piece.color) {
+		            return;
+		        }
+		        if (!authenticatedUser?.uid) {
+		            return;
+		        }
+		        const expectedUid = expectedUidForColor(myColor);
+		        if (!expectedUid || expectedUid !== authenticatedUser.uid) {
+		            return;
+		        }
+		        const ply = moveHistory.length - 1;
+		        if (ply < 0) {
+		            return;
+		        }
+		        const nextTurn = piece.color === 'white' ? 'black' : 'white';
+		        const lobbyId = onlineSession.lobbyId;
+		        const lobbyRef = firebaseDatabaseInstance.ref(`lobbies/${lobbyId}`);
+		        const moveRef = lobbyRef.child('moves').child(String(ply));
+		        const record = {
+		            v: 1,
+		            ply,
+		            byUid: authenticatedUser.uid,
+		            color: piece.color,
+		            nextTurn,
+		            pieceId: piece.id,
+		            from: { q: fromQ, r: fromR },
+		            to: { q: move.q, r: move.r },
+		            captureId: typeof captureId === 'string' ? captureId : null,
+		            castle: move.castle
+		                ? {
+		                        rookId: move.castle.rookId ?? null,
+		                        rookToQ: move.castle.rookToQ,
+		                        rookToR: move.castle.rookToR
+		                    }
+		                : null,
+		            promotionType: promotionType || null,
+		            createdAt: firebase.database.ServerValue.TIMESTAMP
+		        };
+
+		        moveRef
+		            .transaction(current => {
+		                if (current) {
+		                    return; // abort
+		                }
+		                return record;
+		            })
+		            .then(result => {
+		                if (!result?.committed) {
+		                    return;
+		                }
+		                return lobbyRef.child('game').update({
+		                    currentTurn: nextTurn,
+		                    updatedAt: firebase.database.ServerValue.TIMESTAMP
+		                });
+		            })
+		            .catch(error => {
+		                console.warn('Failed to sync move:', error);
+		            });
+		    }
 
     function highlightLastMove(fromQ, fromR, toQ, toR) {
         clearLastMoveHighlight();
@@ -1401,12 +1545,10 @@
         const joinOption = document.createElement('option');
         joinOption.value = 'join-online';
         joinOption.textContent = 'Join Online Lobby';
-        select.appendChild(joinOption);
+	        select.appendChild(joinOption);
 
-        select.addEventListener('change', handleNewGameSelection);
-
-        topRow.appendChild(newGameButton);
-        topRow.appendChild(select);
+	        topRow.appendChild(newGameButton);
+	        topRow.appendChild(select);
 
         const notice = document.createElement('div');
         notice.id = 'new-game-notice';
@@ -1645,12 +1787,13 @@
         flipBoard();
     }
 
-    function startNewGame(mode) {
-        if (mode === 'local') {
-            if (pendingFlipTimeoutId !== null) {
-                clearTimeout(pendingFlipTimeoutId);
-                pendingFlipTimeoutId = null;
-            }
+	    function startNewGame(mode) {
+	        if (mode === 'local') {
+	            clearOnlineSession();
+	            if (pendingFlipTimeoutId !== null) {
+	                clearTimeout(pendingFlipTimeoutId);
+	                pendingFlipTimeoutId = null;
+	            }
             currentTurn = 'white';
             isGameOver = false;
             applyBoardOrientationForCurrentTurn();
@@ -1660,50 +1803,59 @@
             return;
         }
 
-        if (mode === 'create-online') {
-            if (!authenticatedUser) {
-                showNewGameNotice('Please sign in to create an online game.');
-                return;
-            }
-            hideNewGameNotice();
-            createOnlineGameLobby();
-            return;
-        }
+	        if (mode === 'create-online') {
+	            if (!authenticatedUser) {
+	                showNewGameNotice('Please sign in to create an online game.');
+	                return;
+	            }
+	            hideNewGameNotice();
+	            clearOnlineSession();
+	            createOnlineGameLobby();
+	            return;
+	        }
 
-        if (mode === 'join-online') {
-            if (!authenticatedUser) {
-                showNewGameNotice('Please sign in to join an online lobby.');
-                return;
-            }
-            hideNewGameNotice();
-            const lobbyId = window.prompt('Enter Lobby ID to join:');
-            if (!lobbyId) {
-                return;
-            }
-            joinOnlineLobby(lobbyId.trim().toUpperCase());
-        }
-    }
+	        if (mode === 'join-online') {
+	            if (!authenticatedUser) {
+	                showNewGameNotice('Please sign in to join an online lobby.');
+	                return;
+	            }
+	            hideNewGameNotice();
+	            clearOnlineSession();
+	            const lobbyId = window.prompt('Enter Lobby ID to join:');
+	            if (!lobbyId) {
+	                return;
+	            }
+	            joinOnlineLobby(lobbyId.trim().toUpperCase());
+	        }
+	    }
 
-    function flipBoard() {
-        isBoardFlipped = !isBoardFlipped;
-        boardContainer.classList.toggle('board-flipped', isBoardFlipped);
-    }
+	    function flipBoard() {
+	        isBoardFlipped = !isBoardFlipped;
+	        boardContainer.classList.toggle('board-flipped', isBoardFlipped);
+	        updateOnlinePlayerLabels();
+	    }
 
-    function applyBoardOrientationForCurrentTurn() {
-        const isBlackTurn = currentTurn === 'black';
-        const shouldBeFlipped = isBlackTurn;
-        
-        // Force a transition by first removing the class, then adding it
-        if (isBoardFlipped === shouldBeFlipped) {
-            // No change needed, but force animation anyway
-            boardContainer.classList.remove('board-flipped');
-            void boardContainer.offsetWidth; // Force reflow
-        }
-        
-        isBoardFlipped = shouldBeFlipped;
-        boardContainer.classList.toggle('board-flipped', isBoardFlipped);
-        boardContainer.classList.toggle('board-turn-black', isBlackTurn);
-    }
+	    function applyBoardOrientationForCurrentTurn() {
+	        const isBlackTurn = currentTurn === 'black';
+	        boardContainer.classList.toggle('board-turn-black', isBlackTurn);
+
+	        if (onlineSession && onlineSession.lobbyId) {
+	            // Online games should not auto-flip; only the Flip Board button changes orientation.
+	            return;
+	        }
+	        const shouldBeFlipped = isBlackTurn;
+	        
+	        // Force a transition by first removing the class, then adding it
+	        if (isBoardFlipped === shouldBeFlipped) {
+	            // No change needed, but force animation anyway
+	            boardContainer.classList.remove('board-flipped');
+	            void boardContainer.offsetWidth; // Force reflow
+	        }
+	        
+	        isBoardFlipped = shouldBeFlipped;
+	        boardContainer.classList.toggle('board-flipped', isBoardFlipped);
+	        updateOnlinePlayerLabels();
+	    }
 
     function endTurn(piece) {
         currentTurn = piece.color === 'white' ? 'black' : 'white';
@@ -2063,18 +2215,376 @@
         modal.style.display = 'flex';
     }
 
-    function hideOnlineGameModal() {
-        const modal = document.getElementById('online-game-modal');
-        if (!modal) {
-            return;
-        }
-        modal.style.display = 'none';
-    }
+	    function hideOnlineGameModal() {
+	        const modal = document.getElementById('online-game-modal');
+	        if (!modal) {
+	            return;
+	        }
+	        modal.style.display = 'none';
+	    }
 
-	    function setOnlineModalState({ description, lobbyId, canCopy } = {}) {
-	        const descriptionEl = document.getElementById('online-game-description');
-	        const lobbyIdEl = document.getElementById('online-game-lobby-id');
-	        const copyButton = document.getElementById('online-game-copy');
+		    function normalizeLobbyStatus(status) {
+		        return typeof status === 'string' ? status.trim().toLowerCase() : '';
+		    }
+
+	    function stopActiveLobbyListeners() {
+	        if (activeLobbyRef && activeLobbyValueListener) {
+	            activeLobbyRef.off('value', activeLobbyValueListener);
+	        }
+	        activeLobbyRef = null;
+	        activeLobbyValueListener = null;
+
+	        if (activeMovesRef && activeMovesChildAddedListener) {
+	            activeMovesRef.off('child_added', activeMovesChildAddedListener);
+	        }
+	        activeMovesRef = null;
+	        activeMovesChildAddedListener = null;
+	        pendingOnlineMovesByPly.clear();
+	    }
+
+		    function updateOnlinePlayerLabels() {
+		        const topEl = document.getElementById('player-label-top');
+		        const bottomEl = document.getElementById('player-label-bottom');
+		        if (!topEl || !bottomEl) {
+		            return;
+		        }
+		        if (!onlineSession || !onlineSession.roles) {
+		            topEl.hidden = true;
+		            bottomEl.hidden = true;
+		            topEl.textContent = '';
+		            bottomEl.textContent = '';
+		            return;
+		        }
+		        const whiteText = onlineSession.roles.whiteName ? `White: ${onlineSession.roles.whiteName}` : 'White';
+		        const blackText = onlineSession.roles.blackName ? `Black: ${onlineSession.roles.blackName}` : 'Black';
+		        const bottomText = isBoardFlipped ? blackText : whiteText;
+		        const topText = isBoardFlipped ? whiteText : blackText;
+		        bottomEl.textContent = bottomText;
+		        topEl.textContent = topText;
+		        topEl.hidden = false;
+		        bottomEl.hidden = false;
+		    }
+
+		    function clearOnlineSession() {
+		        stopActiveLobbyListeners();
+		        onlineSession = null;
+		        activeLobbyId = null;
+		        updateOnlinePlayerLabels();
+		    }
+
+		    function setOnlineSession(session) {
+		        onlineSession = session;
+		        updateOnlinePlayerLabels();
+		    }
+
+		    function setBoardFlippedTo(value) {
+		        const shouldFlip = !!value;
+		        isBoardFlipped = shouldFlip;
+		        boardContainer.classList.toggle('board-flipped', isBoardFlipped);
+		        updateOnlinePlayerLabels();
+		    }
+
+		    function hashStringToUint32(text) {
+		        let hash = 2166136261;
+		        for (let i = 0; i < text.length; i += 1) {
+		            hash ^= text.charCodeAt(i);
+		            hash = Math.imul(hash, 16777619);
+		        }
+		        return hash >>> 0;
+		    }
+
+		    function deriveRolesForUser(lobby, user, lobbyId) {
+		        const roles = lobby?.roles;
+		        if (roles && roles.whiteUid && roles.blackUid) {
+		            const isWhite = user?.uid && roles.whiteUid === user.uid;
+		            const isBlack = user?.uid && roles.blackUid === user.uid;
+		            if (!isWhite && !isBlack) {
+		                return null;
+		            }
+		            return {
+		                myColor: isWhite ? 'white' : 'black',
+		                roles: {
+		                    whiteUid: roles.whiteUid,
+		                    blackUid: roles.blackUid,
+		                    whiteName: roles.whiteName || 'White',
+		                    blackName: roles.blackName || 'Black'
+		                }
+		            };
+		        }
+
+		        const hostUid = lobby?.host?.uid;
+		        const guestUid = lobby?.guest?.uid;
+		        if (!hostUid || !guestUid || !user?.uid) {
+		            return null;
+		        }
+
+		        const hostName = lobby.host?.displayName || lobby.host?.email || 'Host';
+		        const guestName = lobby.guest?.displayName || lobby.guest?.email || 'Guest';
+		        const seed = typeof lobbyId === 'string' && lobbyId ? lobbyId : String(lobby?.createdAt || '');
+		        const hostIsWhite = (hashStringToUint32(`${seed}|${hostUid}|${guestUid}`) & 1) === 0;
+		        const resolvedRoles = hostIsWhite
+		            ? {
+		                    whiteUid: hostUid,
+		                    blackUid: guestUid,
+		                    whiteName: hostName,
+		                    blackName: guestName
+		                }
+		            : {
+		                    whiteUid: guestUid,
+		                    blackUid: hostUid,
+		                    whiteName: guestName,
+		                    blackName: hostName
+		                };
+
+		        const isWhite = resolvedRoles.whiteUid === user.uid;
+		        const isBlack = resolvedRoles.blackUid === user.uid;
+		        if (!isWhite && !isBlack) {
+		            return null;
+		        }
+		        return {
+		            myColor: isWhite ? 'white' : 'black',
+		            roles: resolvedRoles
+		        };
+		    }
+
+		    function startLobbyListener(lobbyId, { isHost } = {}) {
+		        if (!ensureFirebaseDatabase()) {
+		            return;
+		        }
+		        stopActiveLobbyListeners();
+		        activeLobbyId = lobbyId;
+		        activeLobbyRef = firebaseDatabaseInstance.ref(`lobbies/${lobbyId}`);
+		        activeLobbyValueListener = snapshot => {
+		            const lobby = snapshot.val();
+		            if (!lobby) {
+		                setOnlineModalAction('close');
+		                setOnlineModalState({
+		                    description: 'Lobby ended.',
+		                    lobbyId: '',
+		                    canCopy: false
+		                });
+		                clearOnlineSession();
+		                return;
+		            }
+
+			            const derived = deriveRolesForUser(lobby, authenticatedUser, lobbyId);
+		            if (derived) {
+		                const hasAppliedInitialOrientation = !!onlineSession?.hasAppliedInitialOrientation;
+		                if (!hasAppliedInitialOrientation) {
+		                    setBoardFlippedTo(derived.myColor === 'black');
+		                }
+		                setOnlineSession({
+		                    lobbyId,
+		                    isHost: !!isHost,
+		                    myColor: derived.myColor,
+		                    roles: derived.roles,
+		                    hasAppliedInitialOrientation: true
+		                });
+		                startOnlineMoveListener(lobbyId);
+		            }
+
+		            const status = normalizeLobbyStatus(lobby.status);
+		            const guestName = lobby?.guest?.displayName || lobby?.guest?.email || null;
+		            if (isHost && status === 'active' && guestName) {
+		                const youAre = onlineSession?.myColor ? ` You are ${onlineSession.myColor}.` : '';
+		                setOnlineModalAction('close');
+		                setOnlineModalState({
+		                    description: `Player joined: ${guestName}.${youAre}`,
+		                    lobbyId,
+		                    canCopy: true
+		                });
+		                window.setTimeout(() => {
+		                    hideOnlineGameModal();
+		                }, 650);
+		            }
+		        };
+		        activeLobbyRef.on('value', activeLobbyValueListener);
+		    }
+
+		    function expectedUidForColor(color) {
+		        if (!onlineSession?.roles) {
+		            return null;
+		        }
+		        if (color === 'white') {
+		            return onlineSession.roles.whiteUid || null;
+		        }
+		        if (color === 'black') {
+		            return onlineSession.roles.blackUid || null;
+		        }
+		        return null;
+		    }
+
+		    function canMakeOnlineMoveNow() {
+		        if (!onlineSession?.lobbyId) {
+		            return true; // local game
+		        }
+		        if (!authenticatedUser?.uid) {
+		            return false;
+		        }
+		        const myColor = onlineSession?.myColor;
+		        if (!myColor) {
+		            return false;
+		        }
+		        const expectedUid = expectedUidForColor(myColor);
+		        if (!expectedUid || expectedUid !== authenticatedUser.uid) {
+		            return false;
+		        }
+		        if (currentTurn !== myColor) {
+		            return false;
+		        }
+		        return true;
+		    }
+
+		    function startOnlineMoveListener(lobbyId) {
+		        if (!ensureFirebaseDatabase()) {
+		            return;
+		        }
+		        if (activeMovesRef && activeLobbyId === lobbyId) {
+		            return;
+		        }
+		        if (activeMovesRef && activeMovesChildAddedListener) {
+		            activeMovesRef.off('child_added', activeMovesChildAddedListener);
+		        }
+		        activeMovesRef = firebaseDatabaseInstance.ref(`lobbies/${lobbyId}/moves`);
+		        activeMovesChildAddedListener = snapshot => {
+		            const record = snapshot.val();
+		            if (!record || typeof record.ply !== 'number') {
+		                return;
+		            }
+		            pendingOnlineMovesByPly.set(record.ply, record);
+		            tryApplyPendingOnlineMoves();
+		        };
+		        activeMovesRef.on('child_added', activeMovesChildAddedListener);
+		    }
+
+		    function tryApplyPendingOnlineMoves() {
+		        if (!onlineSession?.lobbyId) {
+		            return;
+		        }
+		        if (!onlineSession?.roles) {
+		            return;
+		        }
+
+		        while (pendingOnlineMovesByPly.has(moveHistory.length)) {
+		            const record = pendingOnlineMovesByPly.get(moveHistory.length);
+		            pendingOnlineMovesByPly.delete(moveHistory.length);
+		            const applied = applyOnlineMoveRecord(record);
+		            if (!applied) {
+		                // If something looks wrong, stop applying further moves.
+		                pendingOnlineMovesByPly.set(record.ply, record);
+		                break;
+		            }
+		        }
+		    }
+
+		    function applyOnlineMoveRecord(record) {
+		        if (!record || typeof record.ply !== 'number') {
+		            return false;
+		        }
+		        if (record.ply !== moveHistory.length) {
+		            return false;
+		        }
+		        if (record.color !== 'white' && record.color !== 'black') {
+		            return false;
+		        }
+
+		        const expectedUid = expectedUidForColor(record.color);
+		        if (!expectedUid || record.byUid !== expectedUid) {
+		            return false;
+		        }
+		        if (record.color !== currentTurn) {
+		            return false;
+		        }
+
+		        const fromQ = record?.from?.q;
+		        const fromR = record?.from?.r;
+		        const toQ = record?.to?.q;
+		        const toR = record?.to?.r;
+		        if (![fromQ, fromR, toQ, toR].every(Number.isFinite)) {
+		            return false;
+		        }
+
+		        const pieceId = typeof record.pieceId === 'string' ? record.pieceId : '';
+		        const piece = piecesById.get(pieceId);
+		        if (!piece || piece.isCaptured) {
+		            return false;
+		        }
+		        if (piece.color !== record.color) {
+		            return false;
+		        }
+		        if (piece.q !== fromQ || piece.r !== fromR) {
+		            return false;
+		        }
+
+		        // Exit history mode when receiving a move.
+		        if (currentHistoryIndex !== -1) {
+		            replayToPosition(moveHistory.length);
+		            currentHistoryIndex = -1;
+		            updateHistoryHighlight();
+		            isGameOver = checkForGameOverState();
+		        }
+
+		        const legalMoves = getLegalMovesForPiece(piece);
+		        const candidate = legalMoves.find(move => move.q === toQ && move.r === toR);
+		        if (!candidate) {
+		            return false;
+		        }
+
+		        const recordCaptureId = typeof record.captureId === 'string' ? record.captureId : null;
+		        if (!!candidate.captureId !== !!recordCaptureId) {
+		            return false;
+		        }
+		        if (recordCaptureId && candidate.captureId !== recordCaptureId) {
+		            return false;
+		        }
+
+		        const recordCastle = record.castle ?? null;
+		        if (recordCastle) {
+		            if (
+		                !candidate.castle ||
+		                candidate.castle.rookId !== recordCastle.rookId ||
+		                candidate.castle.rookToQ !== recordCastle.rookToQ ||
+		                candidate.castle.rookToR !== recordCastle.rookToR
+		            ) {
+		                return false;
+		            }
+		        } else if (candidate.castle) {
+		            return false;
+		        }
+
+		        const recordPromotion = typeof record.promotionType === 'string' ? record.promotionType : null;
+		        if (piece.type === 'pawn' && isPawnPromotionSquare(piece, candidate.q, candidate.r) && !recordPromotion) {
+		            return false;
+		        }
+
+		        const fromKey = coordKey(piece.q, piece.r);
+		        boardOccupancy.delete(fromKey);
+		        if (recordCaptureId) {
+		            capturePiece(recordCaptureId);
+		        }
+
+		        isApplyingOnlineMove = true;
+		        try {
+		            completeMove(
+		                piece,
+		                fromQ,
+		                fromR,
+		                { q: candidate.q, r: candidate.r, castle: candidate.castle },
+		                !!recordCaptureId,
+		                recordPromotion,
+		                recordCaptureId
+		            );
+		        } finally {
+		            isApplyingOnlineMove = false;
+		        }
+		        hideNewGameNotice();
+		        return true;
+		    }
+
+		    function setOnlineModalState({ description, lobbyId, canCopy } = {}) {
+		        const descriptionEl = document.getElementById('online-game-description');
+		        const lobbyIdEl = document.getElementById('online-game-lobby-id');
+		        const copyButton = document.getElementById('online-game-copy');
         if (descriptionEl && typeof description === 'string') {
             descriptionEl.textContent = description;
         }
@@ -2141,16 +2651,17 @@
 	        const lobbyId = generateLobbyId();
 	        activeLobbyId = lobbyId;
 	        const lobbyRef = firebaseDatabaseInstance.ref(`lobbies/${lobbyId}`);
-        const lobbyData = {
-            createdAt: firebase.database.ServerValue.TIMESTAMP,
-            status: 'waiting',
-            host: {
-                uid: authenticatedUser.uid,
-                displayName: authenticatedUser.displayName || 'Host',
-                email: authenticatedUser.email || null
-            },
-            game: serializeBoardState()
-        };
+	        const lobbyData = {
+	            createdAt: firebase.database.ServerValue.TIMESTAMP,
+	            status: 'waiting',
+	            host: {
+	                uid: authenticatedUser.uid,
+	                displayName: authenticatedUser.displayName || 'Host',
+	                email: authenticatedUser.email || null
+	            },
+	            game: serializeBoardState(),
+	            moves: {}
+	        };
 
 	        showOnlineGameModal();
 	        setOnlineModalAction('cancel');
@@ -2160,22 +2671,30 @@
 	            canCopy: false
 	        });
 
-        lobbyRef
-            .set(lobbyData)
-            .then(() => {
-                setOnlineModalState({
-                    description: 'Lobby created! Share this ID with a friend.',
-                    lobbyId: lobbyId,
-                    canCopy: true
-                });
-            })
-            .catch(error => {
-                console.error('Failed to create lobby:', error);
-                activeLobbyId = null;
-                setOnlineModalState({
-                    description: 'Failed to create lobby. Please try again.',
-                    lobbyId: '',
-                    canCopy: false
+	        lobbyRef
+	            .set(lobbyData)
+	            .then(() => {
+	                setOnlineSession({
+	                    lobbyId,
+	                    isHost: true,
+	                    myColor: null,
+	                    roles: null,
+	                    hasAppliedInitialOrientation: false
+	                });
+	                startLobbyListener(lobbyId, { isHost: true });
+	                setOnlineModalState({
+	                    description: 'Lobby created! Share this ID with a friend.',
+	                    lobbyId: lobbyId,
+	                    canCopy: true
+	                });
+	            })
+	            .catch(error => {
+	                console.error('Failed to create lobby:', error);
+	                clearOnlineSession();
+	                setOnlineModalState({
+	                    description: 'Failed to create lobby. Please try again.',
+	                    lobbyId: '',
+	                    canCopy: false
                 });
             });
     }
@@ -2209,88 +2728,160 @@
         applyBoardOrientationForCurrentTurn();
     }
 
-		    function joinOnlineLobby(lobbyId) {
-		        if (!ensureFirebaseDatabase()) {
-		            showNewGameNotice('Realtime Database not initialized.');
-		            return;
-		        }
-		        if (!lobbyId) {
-		            return;
-		        }
+			    function joinOnlineLobby(lobbyId) {
+			        if (!ensureFirebaseDatabase()) {
+			            showNewGameNotice('Realtime Database not initialized.');
+			            return;
+			        }
+			        if (!lobbyId) {
+			            return;
+			        }
 
-		        const lobbyRef = firebaseDatabaseInstance.ref(`lobbies/${lobbyId}`);
+			        const lobbyRef = firebaseDatabaseInstance.ref(`lobbies/${lobbyId}`);
 
-		        showOnlineGameModal();
+			        showOnlineGameModal();
+			        setOnlineModalAction('close');
+			        setOnlineModalState({
+			            description: 'Joining lobby…',
+			            lobbyId,
+			            canCopy: false
+			        });
+
+				        const guestData = {
+				            uid: authenticatedUser.uid,
+				            displayName: authenticatedUser.displayName || 'Guest',
+				            email: authenticatedUser.email || null,
+				            joinedAt: firebase.database.ServerValue.TIMESTAMP
+				        };
+
+					        const statusRef = lobbyRef.child('status');
+					        const rolesRef = lobbyRef.child('roles');
+					        let didClaimLobby = false;
+					        let didWriteGuest = false;
+
+				        statusRef
+				            .transaction(status => {
+				                const normalized = normalizeLobbyStatus(status);
+				                if (!normalized || normalized === 'waiting') {
+				                    return 'active';
+				                }
+				                return; // abort
+				            })
+				            .then(result => {
+				                didClaimLobby = !!result?.committed;
+				                return lobbyRef.once('value').then(snapshot => ({
+				                    result,
+				                    lobby: snapshot?.val?.() ?? null
+				                }));
+				            })
+				            .then(({ result, lobby }) => {
+				                if (!lobby) {
+				                    throw new Error('Lobby not found.');
+				                }
+				                const status = normalizeLobbyStatus(lobby.status);
+				                const canRejoin =
+				                    status &&
+				                    status !== 'waiting' &&
+				                    lobby.guest?.uid &&
+				                    lobby.guest.uid === guestData.uid;
+				                if (!result?.committed) {
+				                    if (!canRejoin) {
+				                        if (status && status !== 'waiting') {
+				                            throw new Error('Lobby was already taken.');
+				                        }
+				                        throw new Error('Failed to join lobby. Please try again.');
+				                    }
+				                }
+
+					                const hostUid = lobby.host?.uid;
+					                const hostName = lobby.host?.displayName || lobby.host?.email || 'Host';
+					                const guestName = guestData.displayName || guestData.email || 'Guest';
+					                const guestWrite = lobbyRef
+					                    .child('guest')
+					                    .set(guestData)
+					                    .then(() => {
+					                        didWriteGuest = true;
+					                    });
+					                const rolesWrite = rolesRef.transaction(currentRoles => {
+					                    if (currentRoles && currentRoles.whiteUid && currentRoles.blackUid) {
+					                        return; // abort
+					                    }
+					                    if (!hostUid) {
+					                        return; // abort
+				                    }
+				                    const hostIsWhite = Math.random() < 0.5;
+				                    return {
+				                        whiteUid: hostIsWhite ? hostUid : guestData.uid,
+				                        blackUid: hostIsWhite ? guestData.uid : hostUid,
+				                        whiteName: hostIsWhite ? hostName : guestName,
+				                        blackName: hostIsWhite ? guestName : hostName,
+					                        assignedAt: firebase.database.ServerValue.TIMESTAMP
+					                    };
+					                }).catch(error => {
+					                    console.warn('Failed to assign roles:', error);
+					                });
+					                return Promise.all([guestWrite, rolesWrite]).then(() => lobbyRef.once('value'));
+					            })
+				            .then(snapshot => snapshot?.val?.() ?? null)
+				            .then(lobby => {
+				                if (!lobby) {
+				                    throw new Error('Lobby not found.');
+				                }
+
+				                activeLobbyId = lobbyId;
+				                setOnlineSession({
+				                    lobbyId,
+				                    isHost: false,
+				                    myColor: null,
+				                    roles: null,
+				                    hasAppliedInitialOrientation: false
+				                });
+				                startLobbyListener(lobbyId, { isHost: false });
+
+				                if (lobby.game) {
+				                    applyBoardState(lobby.game);
+				                }
+
+				                const derived = deriveRolesForUser(lobby, authenticatedUser, lobbyId);
+				                const myColor = derived?.myColor || null;
+				                if (derived) {
+				                    setOnlineSession({
+				                        lobbyId,
+				                        isHost: false,
+				                        myColor,
+				                        roles: derived.roles,
+				                        hasAppliedInitialOrientation: true
+				                    });
+				                    setBoardFlippedTo(myColor === 'black');
+				                }
+
+				                setOnlineModalState({
+				                    description: myColor ? `Joined lobby. You are ${myColor}.` : 'Joined lobby.',
+				                    lobbyId,
+				                    canCopy: true
+				                });
+				                window.setTimeout(() => {
+				                    hideOnlineGameModal();
+				                }, 650);
+				            })
+					            .catch(error => {
+					                console.error('Failed to join lobby:', error);
+					                if (didClaimLobby && !didWriteGuest) {
+					                    statusRef.set('waiting').catch(() => {});
+					                }
+					                clearOnlineSession();
+					                setOnlineModalState({
+					                    description: error.message || 'Failed to join lobby.',
+				                    lobbyId: '',
+				                    canCopy: false
+				                });
+				            });
+				    }
+
+		    function cancelOnlineLobby() {
+		        const lobbyIdToDelete = activeLobbyId;
+		        clearOnlineSession();
 		        setOnlineModalAction('close');
-		        setOnlineModalState({
-		            description: 'Joining lobby…',
-		            lobbyId,
-		            canCopy: false
-		        });
-
-		        const statusRef = lobbyRef.child('status');
-		        const guestData = {
-		            uid: authenticatedUser.uid,
-		            displayName: authenticatedUser.displayName || 'Guest',
-		            email: authenticatedUser.email || null,
-		            joinedAt: firebase.database.ServerValue.TIMESTAMP
-		        };
-
-		        // Ensure the lobby exists before attempting to claim it, then atomically
-		        // flip status from waiting -> active (treat missing status as joinable).
-		        lobbyRef
-		            .once('value')
-		            .then(snapshot => {
-		                const lobby = snapshot.val();
-		                if (!lobby) {
-		                    throw new Error('Lobby not found.');
-		                }
-		                return statusRef.transaction(status => {
-		                    const normalized = typeof status === 'string' ? status.trim().toLowerCase() : null;
-		                    if (!normalized || normalized === 'waiting') {
-		                        return 'active';
-		                    }
-		                    return; // abort
-		                });
-		            })
-		            .then(result => {
-		                if (!result.committed) {
-		                    throw new Error('Lobby was already taken.');
-		                }
-		                // Set guest info separately to avoid overwriting lobby.
-		                return lobbyRef.child('guest').set(guestData);
-		            })
-		            .then(() => lobbyRef.once('value'))
-		            .then(snapshot => {
-		                const lobby = snapshot.val();
-		                if (!lobby) {
-		                    throw new Error('Lobby not found.');
-		                }
-		                activeLobbyId = lobbyId;
-		                if (lobby.game) {
-		                    applyBoardState(lobby.game);
-		                }
-		                setOnlineModalState({
-		                    description: 'Joined lobby. Game is linked (moves not synced yet).',
-		                    lobbyId,
-		                    canCopy: true
-		                });
-		            })
-		            .catch(error => {
-		                console.error('Failed to join lobby:', error);
-		                activeLobbyId = null;
-		                setOnlineModalState({
-		                    description: error.message || 'Failed to join lobby.',
-		                    lobbyId: '',
-		                    canCopy: false
-		                });
-		            });
-		    }
-
-	    function cancelOnlineLobby() {
-	        const lobbyIdToDelete = activeLobbyId;
-	        activeLobbyId = null;
-	        setOnlineModalAction('close');
 
 	        setOnlineModalState({
 	            description: 'Create a lobby to share with a friend.',
