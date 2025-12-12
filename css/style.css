@@ -400,6 +400,14 @@ body {
     font-weight: 600;
 }
 
+.history-current {
+    background: rgba(255, 193, 7, 0.3) !important;
+    font-weight: 700;
+    color: #1a1a1a;
+    box-shadow: 0 0 0 2px rgba(255, 193, 7, 0.6);
+    border-radius: 4px;
+}
+
 .move-notation {
     cursor: pointer;
     padding: 0.125rem 0.25rem;
