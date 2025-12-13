@@ -370,7 +370,13 @@
             return;
         }
         if (piece.color !== currentTurn) {
-            clearSelection();
+            // Show opponent piece moves with light orange highlighting
+            const moves = getLegalMovesForPiece(piece);
+            if (moves.length > 0) {
+                highlightOpponentPieceMoves(piece, moves);
+            } else {
+                clearSelection();
+            }
             return;
         }
         const moves = getLegalMovesForPiece(piece);
@@ -416,6 +422,16 @@
         });
     }
 
+    function highlightOpponentPieceMoves(piece, moves) {
+        clearHighlightedTiles();
+        highlightTile(piece.q, piece.r, 'tile-selected');
+        moves.forEach(move => {
+            const targetQ = move.triggerQ ?? move.q;
+            const targetR = move.triggerR ?? move.r;
+            highlightTile(targetQ, targetR, 'tile-opponent-move');
+        });
+    }
+
     function highlightTile(q, r, className) {
         const tileElement = tileElements.get(coordKey(q, r));
         if (!tileElement) {
@@ -429,7 +445,7 @@
 
     function clearHighlightedTiles() {
         highlightedTiles.forEach(tileEl => {
-            tileEl.classList.remove('tile-selected', 'tile-move', 'tile-move-friendly', 'tile-capture');
+            tileEl.classList.remove('tile-selected', 'tile-move', 'tile-move-friendly', 'tile-capture', 'tile-opponent-move');
         });
         highlightedTiles.length = 0;
     }
