@@ -13,6 +13,8 @@
     let firebaseAppInstance = null;
     let firebaseDatabaseInstance = null;
     let newGameNoticeTimeoutId = null;
+let turnIndicatorTimeoutId = null;
+let playerLabelsTimeoutId = null;
 
     const authUI = buildAuthPopup();
     if (authUI && document.body) {
@@ -2579,6 +2581,18 @@ function startNewGame(mode) {
         topEl.hidden = false;
         bottomEl.hidden = false;
         updateTurnIndicator();
+        
+        // Clear any existing timeout for player labels
+        if (playerLabelsTimeoutId !== null) {
+            clearTimeout(playerLabelsTimeoutId);
+        }
+        
+        // Hide the player labels after 3 seconds
+        playerLabelsTimeoutId = window.setTimeout(() => {
+            topEl.hidden = true;
+            bottomEl.hidden = true;
+            playerLabelsTimeoutId = null;
+        }, 3000);
     }
 
     function updateTurnIndicator() {
@@ -2609,12 +2623,34 @@ function startNewGame(mode) {
             turnEl.style.background = 'rgba(60, 85, 200, 0.95)';
             turnEl.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.3)';
         }
+        
+        // Clear any existing timeout
+        if (turnIndicatorTimeoutId !== null) {
+            clearTimeout(turnIndicatorTimeoutId);
+        }
+        
+        // Hide the turn indicator after 3 seconds
+        turnIndicatorTimeoutId = window.setTimeout(() => {
+            turnEl.hidden = true;
+            turnIndicatorTimeoutId = null;
+        }, 3000);
     }
 
 function clearOnlineSession() {
         stopActiveLobbyListeners();
         onlineSession = null;
         activeLobbyId = null;
+        
+        // Clear any pending timeouts
+        if (turnIndicatorTimeoutId !== null) {
+            clearTimeout(turnIndicatorTimeoutId);
+            turnIndicatorTimeoutId = null;
+        }
+        if (playerLabelsTimeoutId !== null) {
+            clearTimeout(playerLabelsTimeoutId);
+            playerLabelsTimeoutId = null;
+        }
+        
         updateOnlinePlayerLabels();
         updateTurnIndicator();
     }
