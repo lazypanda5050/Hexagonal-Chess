@@ -209,10 +209,28 @@ let playerLabelsTimeoutId = null;
     appRoot.appendChild(promotionModal);
     appRoot.appendChild(onlineGameModal);
 
-	    // Add keyboard event listener for history navigation (currently disabled).
-	    if (HISTORY_MODE_ENABLED) {
-	        document.addEventListener('keydown', handleKeyDown);
-	    }
+// Add keyboard event listener for history navigation (currently disabled).
+    if (HISTORY_MODE_ENABLED) {
+        document.addEventListener('keydown', handleKeyDown);
+    }
+
+    // Add page unload event listener to clean up online sessions
+    window.addEventListener('beforeunload', handlePageUnload);
+    window.addEventListener('pagehide', handlePageUnload);
+    
+    // Also handle visibility change for additional cleanup
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'hidden' && activeLobbyId) {
+            // When page becomes hidden, attempt cleanup as additional safety measure
+            // This handles cases like browser tab switching or app suspension
+            setTimeout(() => {
+                // Only cleanup if page is still hidden after a short delay
+                if (document.visibilityState === 'hidden' && activeLobbyId) {
+                    handlePageUnload();
+                }
+            }, 5000); // 5 second delay to avoid premature cleanup
+        }
+    });
 
     initEmptyBoard();
 
@@ -2628,7 +2646,39 @@ function startNewGame(mode) {
         }
     }
 
-function clearOnlineSession() {
+function handlePageUnload() {
+        // Auto-kick everyone and delete lobby entry when player closes tab
+        if (activeLobbyId && ensureFirebaseDatabase()) {
+            const lobbyRef = firebaseDatabaseInstance.ref(`lobbies/${activeLobbyId}`);
+            
+            // Try to delete the lobby immediately using Firebase SDK
+            lobbyRef.remove().catch(error => {
+                console.warn('Failed to delete lobby on page unload:', error);
+            });
+            
+            // Also try using fetch with keepalive as a fallback for better reliability
+            // This helps ensure the deletion request completes even during page unload
+            try {
+                const deleteUrl = `https://hexagonal-chess-default-rtdb.firebaseio.com/lobbies/${activeLobbyId}.json`;
+                fetch(deleteUrl, {
+                    method: 'DELETE',
+                    keepalive: true,
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                }).catch(error => {
+                    console.warn('Fallback delete request failed:', error);
+                });
+            } catch (error) {
+                console.warn('Error during fallback delete:', error);
+            }
+        }
+        
+        // Clear local session
+        clearOnlineSession();
+    }
+
+    function clearOnlineSession() {
         stopActiveLobbyListeners();
         onlineSession = null;
         activeLobbyId = null;
