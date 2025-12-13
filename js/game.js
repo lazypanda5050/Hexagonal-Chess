@@ -2968,9 +2968,8 @@ function clearOnlineSession() {
 
     function generateLobbyId() {
         const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-        const length = Math.floor(Math.random() * 5) + 6; // 6-10 chars
         let id = '';
-        for (let i = 0; i < length; i += 1) {
+        for (let i = 0; i < 6; i += 1) {
             id += chars.charAt(Math.floor(Math.random() * chars.length));
         }
         return id;
