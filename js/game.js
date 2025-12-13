@@ -2566,10 +2566,22 @@ function startNewGame(mode) {
         }
         const whiteText = onlineSession.roles.whiteName ? `White: ${onlineSession.roles.whiteName}` : 'White';
         const blackText = onlineSession.roles.blackName ? `Black: ${onlineSession.roles.blackName}` : 'Black';
-        const bottomText = isBoardFlipped ? blackText : whiteText;
-        const topText = isBoardFlipped ? whiteText : blackText;
-        bottomEl.textContent = bottomText;
-        topEl.textContent = topText;
+        
+        // In online games, always show the current player at the bottom
+        if (onlineSession.lobbyId && onlineSession.myColor !== 'both') {
+            // For regular online games, bottom should always show the current player's color
+            const bottomText = onlineSession.myColor === 'black' ? blackText : whiteText;
+            const topText = onlineSession.myColor === 'black' ? whiteText : blackText;
+            bottomEl.textContent = bottomText;
+            topEl.textContent = topText;
+        } else {
+            // For local games or self-play, use board flip state
+            const bottomText = isBoardFlipped ? blackText : whiteText;
+            const topText = isBoardFlipped ? whiteText : blackText;
+            bottomEl.textContent = bottomText;
+            topEl.textContent = topText;
+        }
+        
         topEl.hidden = false;
         bottomEl.hidden = false;
         updateTurnIndicator();
