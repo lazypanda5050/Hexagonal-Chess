@@ -3199,7 +3199,7 @@ function clearOnlineSession() {
 					                    if (!hostUid) {
 					                        return; // abort
 				                    }
-				                    const hostIsWhite = Math.random() < 0.5;
+				                    const hostIsWhite = Math.random() >= 0.5;
 				                    return {
 				                        whiteUid: hostIsWhite ? hostUid : guestData.uid,
 				                        blackUid: hostIsWhite ? guestData.uid : hostUid,
