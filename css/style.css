@@ -282,6 +282,7 @@ body {
     object-fit: contain;
     transition: left 600ms ease-in-out, top 600ms ease-in-out;
     cursor: pointer;
+    z-index: 5;
 }
 
 .piece-king-in-check {
@@ -320,7 +321,7 @@ body {
 }
 
 .hex-tile.tile-move {
-    z-index: 10;
+    z-index: 15;
 }
 
 .hex-tile.tile-move::after {
@@ -334,6 +335,7 @@ body {
     background: #6ed472;
     border-radius: 50%;
     pointer-events: none;
+    z-index: 20;
 }
 
 .hex-tile.tile-capture {
@@ -341,7 +343,7 @@ body {
 }
 
 .hex-tile.tile-opponent-move {
-    z-index: 10;
+    z-index: 15;
 }
 
 .hex-tile.tile-opponent-move::after {
@@ -355,6 +357,7 @@ body {
     background: #ff8c00;
     border-radius: 50%;
     pointer-events: none;
+    z-index: 20;
 }
 
 .hex-tile.tile-last-move {
