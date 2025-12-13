@@ -2,7 +2,7 @@
     const BOARD_RADIUS = 5; // Creates 91 tiles for Gliński's board
     const SQRT3 = Math.sqrt(3);
     const BOARD_FLIP_DELAY = 676; // Delay for board flip animation in milliseconds
-    const HISTORY_MODE_ENABLED = false;
+    const HISTORY_MODE_ENABLED = true;
 
     const appRoot = document.getElementById('app');
     if (!appRoot) {
@@ -1311,7 +1311,7 @@
         }
     }
 
-    function updatePiecePosition(piece) {
+    function updatePiecePosition(piece, animate = true) {
         if (!piece.element) {
             return;
         }
@@ -1319,8 +1319,15 @@
         if (!position) {
             return;
         }
+        if (!animate) {
+            piece.element.style.transition = 'none';
+        }
         piece.element.style.left = `${position.centerX - pieceSize / 2}px`;
         piece.element.style.top = `${position.centerY - pieceSize / 2}px`;
+        if (!animate) {
+            void piece.element.offsetWidth;
+            piece.element.style.transition = '';
+        }
     }
 
     function renderLabels(tilesArray) {
@@ -1651,8 +1658,17 @@
         movesList.id = 'moves-list';
         movesList.className = 'moves-list';
 
+        const exitHistoryButton = document.createElement('button');
+        exitHistoryButton.type = 'button';
+        exitHistoryButton.id = 'exit-history-button';
+        exitHistoryButton.className = 'control-button exit-history-button';
+        exitHistoryButton.textContent = 'EXIT HISTORY MODE';
+        exitHistoryButton.style.display = 'none';
+        exitHistoryButton.addEventListener('click', exitHistoryMode);
+
         sidebar.appendChild(header);
         sidebar.appendChild(movesList);
+        sidebar.appendChild(exitHistoryButton);
 
         return sidebar;
     }
@@ -2049,6 +2065,7 @@ function startNewGame(mode) {
             const whiteMoveSpan = document.createElement('span');
             whiteMoveSpan.className = 'move-white move-notation';
             whiteMoveSpan.textContent = whiteMove.notation || '??';
+            whiteMoveSpan.addEventListener('click', () => jumpToMove(i));
             
             movePair.appendChild(moveNumber);
             movePair.appendChild(whiteMoveSpan);
@@ -2058,6 +2075,7 @@ function startNewGame(mode) {
                 const blackMoveSpan = document.createElement('span');
                 blackMoveSpan.className = 'move-black move-notation';
                 blackMoveSpan.textContent = blackMove.notation || '??';
+                blackMoveSpan.addEventListener('click', () => jumpToMove(i + 1));
                 movePair.appendChild(blackMoveSpan);
             }
             
@@ -2065,6 +2083,15 @@ function startNewGame(mode) {
         }
         
         movesList.scrollTop = movesList.scrollHeight;
+    }
+
+    function jumpToMove(moveIndex) {
+        if (moveIndex < 0 || moveIndex >= moveHistory.length) return;
+        
+        currentHistoryIndex = moveIndex;
+        replayToPosition(moveIndex + 1, true);
+        isGameOver = false;
+        updateHistoryHighlight();
     }
 
     function clearHistory() {
@@ -2101,6 +2128,7 @@ function startNewGame(mode) {
     function navigateHistory(direction) {
         if (moveHistory.length === 0) return;
 
+        const oldIndex = currentHistoryIndex;
         const newIndex = currentHistoryIndex + direction;
         
         // Clamp to valid range: -1 (latest) to moveHistory.length - 1 (first move)
@@ -2112,14 +2140,17 @@ function startNewGame(mode) {
         
         currentHistoryIndex = clampedIndex;
         
+        // Check if we're going backwards (left arrow)
+        const goingBackwards = direction < 0;
+        
         if (currentHistoryIndex === -1) {
             // Show the latest position - replay all moves
-            replayToPosition(moveHistory.length);
+            replayToPosition(moveHistory.length, true, goingBackwards);
             // Restore actual game state
             isGameOver = checkForGameOverState();
         } else {
             // Show position up to currentHistoryIndex
-            replayToPosition(currentHistoryIndex + 1);
+            replayToPosition(currentHistoryIndex + 1, true, goingBackwards);
             // When viewing history, we're not in a game over state
             isGameOver = false;
         }
@@ -2142,8 +2173,173 @@ function startNewGame(mode) {
         return false;
     }
 
-    function replayToPosition(moveCount) {
-        // Reset board to starting position
+    function replayToPosition(moveCount, animateLastMove = false, reverseAnimation = false) {
+        // If going backwards and animating, we need to show the piece at its destination first,
+        // then animate it back to its source
+        if (animateLastMove && reverseAnimation && moveCount > 0) {
+            const moveToAnimate = moveHistory[moveCount - 1];
+            if (moveToAnimate) {
+                // First, set up the board at the target position (moveCount)
+                initEmptyBoard();
+                const freshPieces = createInitialPieces();
+                placePieces(freshPieces);
+                currentTurn = 'white';
+                clearLastMoveHighlight();
+                clearSelection();
+                
+                // Replay all moves up to moveCount WITHOUT animation
+                for (let i = 0; i < moveCount && i < moveHistory.length; i++) {
+                    const move = moveHistory[i];
+                    const pieceId = move.piece.id;
+                    const piece = piecesById.get(pieceId);
+                    
+                    if (!piece) continue;
+                    
+                    if (move.isCapture && move.capturedPieceId) {
+                        const capturedPiece = piecesById.get(move.capturedPieceId);
+                        if (capturedPiece) {
+                            const capturedKey = coordKey(capturedPiece.q, capturedPiece.r);
+                            boardOccupancy.delete(capturedKey);
+                            capturedPiece.isCaptured = true;
+                            if (capturedPiece.element?.parentNode) {
+                                capturedPiece.element.parentNode.removeChild(capturedPiece.element);
+                            }
+                        }
+                    }
+                    
+                    if (move.castle) {
+                        const rook = piecesById.get(move.castle.rookId ?? '');
+                        if (rook && !rook.isCaptured) {
+                            const rookFromKey = coordKey(rook.q, rook.r);
+                            boardOccupancy.delete(rookFromKey);
+                            rook.q = move.castle.rookToQ;
+                            rook.r = move.castle.rookToR;
+                            rook.hasMoved = true;
+                            const rookDestinationKey = coordKey(rook.q, rook.r);
+                            boardOccupancy.set(rookDestinationKey, rook.id);
+                            updatePiecePosition(rook, false);
+                        }
+                    }
+                    
+                    if (move.promotionType) {
+                        piece.type = move.promotionType;
+                        piece.element.src = PIECE_SPRITES[piece.color][move.promotionType];
+                        piece.element.alt = `${piece.color} ${move.promotionType}`;
+                    }
+                    
+                    const fromKey = coordKey(piece.q, piece.r);
+                    boardOccupancy.delete(fromKey);
+                    
+                    piece.q = move.toQ;
+                    piece.r = move.toR;
+                    piece.hasMoved = true;
+                    
+                    const destinationKey = coordKey(piece.q, piece.r);
+                    boardOccupancy.set(destinationKey, piece.id);
+                    updatePiecePosition(piece, false);
+                    
+                    currentTurn = move.color === 'white' ? 'black' : 'white';
+                }
+                
+                // Now animate the last move in reverse
+                const pieceId = moveToAnimate.piece.id;
+                const piece = piecesById.get(pieceId);
+                
+                if (piece && piece.element) {
+                    // Temporarily position piece at destination (toQ, toR)
+                    const destPos = tilePositions.get(coordKey(moveToAnimate.toQ, moveToAnimate.toR));
+                    if (destPos) {
+                        piece.element.style.transition = 'none';
+                        piece.element.style.left = `${destPos.centerX - pieceSize / 2}px`;
+                        piece.element.style.top = `${destPos.centerY - pieceSize / 2}px`;
+                        void piece.element.offsetWidth; // Force reflow
+                        piece.element.style.transition = '';
+                        
+                        // Now animate back to source (fromQ, fromR)
+                        setTimeout(() => {
+                            const sourcePos = tilePositions.get(coordKey(moveToAnimate.fromQ, moveToAnimate.fromR));
+                            if (sourcePos) {
+                                piece.element.style.left = `${sourcePos.centerX - pieceSize / 2}px`;
+                                piece.element.style.top = `${sourcePos.centerY - pieceSize / 2}px`;
+                            }
+                        }, 10);
+                    }
+                }
+                
+                // Now set up the board at moveCount - 1 (the previous position)
+                setTimeout(() => {
+                    initEmptyBoard();
+                    const freshPieces2 = createInitialPieces();
+                    placePieces(freshPieces2);
+                    currentTurn = 'white';
+                    clearLastMoveHighlight();
+                    clearSelection();
+                    
+                    for (let i = 0; i < moveCount - 1 && i < moveHistory.length; i++) {
+                        const move = moveHistory[i];
+                        const pieceId = move.piece.id;
+                        const piece = piecesById.get(pieceId);
+                        
+                        if (!piece) continue;
+                        
+                        if (move.isCapture && move.capturedPieceId) {
+                            const capturedPiece = piecesById.get(move.capturedPieceId);
+                            if (capturedPiece) {
+                                const capturedKey = coordKey(capturedPiece.q, capturedPiece.r);
+                                boardOccupancy.delete(capturedKey);
+                                capturedPiece.isCaptured = true;
+                                if (capturedPiece.element?.parentNode) {
+                                    capturedPiece.element.parentNode.removeChild(capturedPiece.element);
+                                }
+                            }
+                        }
+                        
+                        if (move.castle) {
+                            const rook = piecesById.get(move.castle.rookId ?? '');
+                            if (rook && !rook.isCaptured) {
+                                const rookFromKey = coordKey(rook.q, rook.r);
+                                boardOccupancy.delete(rookFromKey);
+                                rook.q = move.castle.rookToQ;
+                                rook.r = move.castle.rookToR;
+                                rook.hasMoved = true;
+                                const rookDestinationKey = coordKey(rook.q, rook.r);
+                                boardOccupancy.set(rookDestinationKey, rook.id);
+                                updatePiecePosition(rook, false);
+                            }
+                        }
+                        
+                        if (move.promotionType) {
+                            piece.type = move.promotionType;
+                            piece.element.src = PIECE_SPRITES[piece.color][move.promotionType];
+                            piece.element.alt = `${piece.color} ${move.promotionType}`;
+                        }
+                        
+                        const fromKey = coordKey(piece.q, piece.r);
+                        boardOccupancy.delete(fromKey);
+                        
+                        piece.q = move.toQ;
+                        piece.r = move.toR;
+                        piece.hasMoved = true;
+                        
+                        const destinationKey = coordKey(piece.q, piece.r);
+                        boardOccupancy.set(destinationKey, piece.id);
+                        updatePiecePosition(piece, false);
+                        
+                        currentTurn = move.color === 'white' ? 'black' : 'white';
+                        
+                        if (i === moveCount - 2) {
+                            highlightLastMove(move.fromQ, move.fromR, move.toQ, move.toR);
+                        }
+                    }
+                    
+                    updateKingInCheckHighlight();
+                }, 620);
+                
+                return;
+            }
+        }
+        
+        // Normal forward animation or no animation
         initEmptyBoard();
         const freshPieces = createInitialPieces();
         placePieces(freshPieces);
@@ -2154,6 +2350,8 @@ function startNewGame(mode) {
         // Replay moves up to moveCount
         for (let i = 0; i < moveCount && i < moveHistory.length; i++) {
             const move = moveHistory[i];
+            const isLastMove = (i === moveCount - 1);
+            const shouldAnimate = animateLastMove && isLastMove && !reverseAnimation;
             
             // Find the piece that made this move
             const pieceId = move.piece.id;
@@ -2185,7 +2383,7 @@ function startNewGame(mode) {
                     rook.hasMoved = true;
                     const rookDestinationKey = coordKey(rook.q, rook.r);
                     boardOccupancy.set(rookDestinationKey, rook.id);
-                    updatePiecePosition(rook);
+                    updatePiecePosition(rook, shouldAnimate);
                 }
             }
             
@@ -2206,13 +2404,13 @@ function startNewGame(mode) {
             
             const destinationKey = coordKey(piece.q, piece.r);
             boardOccupancy.set(destinationKey, piece.id);
-            updatePiecePosition(piece);
+            updatePiecePosition(piece, shouldAnimate);
             
             // Update turn
             currentTurn = move.color === 'white' ? 'black' : 'white';
             
             // Highlight the last move if this is the final move being replayed
-            if (i === moveCount - 1) {
+            if (isLastMove) {
                 highlightLastMove(move.fromQ, move.fromR, move.toQ, move.toR);
             }
         }
@@ -2224,6 +2422,7 @@ function startNewGame(mode) {
     function updateHistoryHighlight() {
         const movesList = document.getElementById('moves-list');
         const historyIndicator = document.getElementById('history-indicator');
+        const exitButton = document.getElementById('exit-history-button');
         if (!movesList) return;
         
         // Remove all existing highlights
@@ -2231,7 +2430,7 @@ function startNewGame(mode) {
             el.classList.remove('history-current');
         });
         
-        // Show/hide history indicator
+        // Show/hide history indicator and exit button
         if (historyIndicator) {
             if (currentHistoryIndex >= 0) {
                 historyIndicator.style.display = 'inline';
@@ -2244,6 +2443,10 @@ function startNewGame(mode) {
             }
         }
         
+        if (exitButton) {
+            exitButton.style.display = currentHistoryIndex >= 0 ? 'block' : 'none';
+        }
+        
         // Add highlight to current position
         if (currentHistoryIndex >= 0) {
             const moveElements = movesList.querySelectorAll('.move-notation');
@@ -2251,6 +2454,15 @@ function startNewGame(mode) {
                 moveElements[currentHistoryIndex].classList.add('history-current');
             }
         }
+    }
+
+    function exitHistoryMode() {
+        if (currentHistoryIndex === -1) return;
+        
+        replayToPosition(moveHistory.length, false);
+        currentHistoryIndex = -1;
+        updateHistoryHighlight();
+        isGameOver = checkForGameOverState();
     }
 
 

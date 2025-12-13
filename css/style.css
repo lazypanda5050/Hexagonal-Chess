@@ -280,7 +280,7 @@ body {
     pointer-events: auto;
     user-select: none;
     object-fit: contain;
-    transition: left 220ms ease-out, top 220ms ease-out;
+    transition: left 600ms ease-in-out, top 600ms ease-in-out;
     cursor: pointer;
 }
 
@@ -451,6 +451,26 @@ body {
     color: #1a1a1a;
     box-shadow: 0 0 0 2px rgba(255, 193, 7, 0.6);
     border-radius: 4px;
+}
+
+.history-indicator {
+    display: inline;
+    margin-left: 0.5rem;
+    color: #ff6b35;
+    font-weight: 600;
+    font-size: 0.85rem;
+}
+
+.exit-history-button {
+    width: 100%;
+    margin-top: 0.75rem;
+    background: #ff6b35;
+    font-weight: 700;
+}
+
+.exit-history-button:hover {
+    background: #e55a25;
+    transform: translateY(-1px);
 }
 
 .move-notation {
