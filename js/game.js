@@ -232,6 +232,58 @@ let playerLabelsTimeoutId = null;
         }
     });
 
+    function initializeDarkMode() {
+        const savedTheme = localStorage.getItem('darkMode');
+        const systemPrefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+        
+        let darkMode = false;
+        if (savedTheme === 'true') {
+            darkMode = true;
+        } else if (savedTheme === 'false') {
+            darkMode = false;
+        } else {
+            // Use system preference if no saved preference
+            darkMode = systemPrefersDark;
+        }
+        
+        setDarkMode(darkMode);
+        
+        // Listen for system theme changes
+        window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
+            if (localStorage.getItem('darkMode') === null) {
+                setDarkMode(e.matches);
+            }
+        });
+    }
+
+    function setDarkMode(isDark) {
+        const root = document.documentElement;
+        const darkModeButton = document.getElementById('dark-mode-button');
+        
+        if (isDark) {
+            root.classList.add('dark-mode');
+            if (darkModeButton) {
+                darkModeButton.textContent = '☀️';
+                darkModeButton.title = 'Toggle light mode';
+            }
+        } else {
+            root.classList.remove('dark-mode');
+            if (darkModeButton) {
+                darkModeButton.textContent = '🌙';
+                darkModeButton.title = 'Toggle dark mode';
+            }
+        }
+    }
+
+    function handleDarkModeToggle() {
+        const root = document.documentElement;
+        const isCurrentlyDark = root.classList.contains('dark-mode');
+        const newDarkMode = !isCurrentlyDark;
+        
+        setDarkMode(newDarkMode);
+        localStorage.setItem('darkMode', newDarkMode.toString());
+    }
+
     initEmptyBoard();
 
     function buildTiles() {
@@ -1606,6 +1658,14 @@ let playerLabelsTimeoutId = null;
         flipButton.textContent = 'Flip Board';
         flipButton.addEventListener('click', handleFlipBoardClick);
 
+        const darkModeButton = document.createElement('button');
+        darkModeButton.type = 'button';
+        darkModeButton.id = 'dark-mode-button';
+        darkModeButton.className = 'control-button';
+        darkModeButton.textContent = '🌙';
+        darkModeButton.title = 'Toggle dark mode';
+        darkModeButton.addEventListener('click', handleDarkModeToggle);
+
         const select = document.createElement('select');
         select.id = 'new-game-select';
         select.name = 'new-game';
@@ -1628,6 +1688,7 @@ let playerLabelsTimeoutId = null;
 
 	        topRow.appendChild(newGameButton);
 	        topRow.appendChild(select);
+	        topRow.appendChild(darkModeButton);
 
         const notice = document.createElement('div');
         notice.id = 'new-game-notice';
@@ -2309,7 +2370,10 @@ function startNewGame(mode) {
                 
                 // Now set up the board at moveCount - 1 (the previous position)
                 setTimeout(() => {
-                    initEmptyBoard();
+    // Initialize dark mode
+    initializeDarkMode();
+
+    initEmptyBoard();
                     const freshPieces2 = createInitialPieces();
                     placePieces(freshPieces2);
                     currentTurn = 'white';
