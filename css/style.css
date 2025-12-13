@@ -22,7 +22,7 @@ body {
 #auth-popup {
     position: fixed;
     top: 1rem;
-    right: 1rem;
+    left: 1rem;
     z-index: 1500;
     background: #ffffff;
     border-radius: 16px;

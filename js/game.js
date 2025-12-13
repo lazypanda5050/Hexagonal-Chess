@@ -1403,8 +1403,6 @@
         joinOption.textContent = 'Join Online Lobby';
         select.appendChild(joinOption);
 
-        select.addEventListener('change', handleNewGameSelection);
-
         topRow.appendChild(newGameButton);
         topRow.appendChild(select);
 
@@ -1635,10 +1633,6 @@
         const select = document.getElementById('new-game-select');
         const mode = select?.value ?? 'local';
         startNewGame(mode);
-    }
-
-    function handleNewGameSelection(event) {
-        startNewGame(event.target.value);
     }
 
     function handleFlipBoardClick() {
@@ -2455,6 +2449,7 @@
 
         const auth = firebase.auth(firebaseApp);
         const provider = new firebase.auth.GoogleAuthProvider();
+        provider.setCustomParameters({ prompt: 'select_account' });
         const {
             signInButton,
             signOutButton,
@@ -2468,6 +2463,10 @@
             signInButton.disabled = isLoading;
             signOutButton.disabled = isLoading;
         };
+
+        let authPopupInProgress = false;
+        const signInLabel = signInButton.textContent;
+        const signOutLabel = signOutButton.textContent;
 
         const updateSignedInState = user => {
             if (user) {
@@ -2493,18 +2492,32 @@
         };
 
         signInButton.addEventListener('click', () => {
+            if (authPopupInProgress) return;
+            authPopupInProgress = true;
             setLoadingState(true);
-            auth.signInWithPopup(provider).catch(error => {
-                console.error('Google sign-in failed:', error);
-                setLoadingState(false);
-            });
+            signInButton.textContent = 'Signing in...';
+            auth
+                .signInWithPopup(provider)
+                .catch(error => {
+                    console.error('Google sign-in failed:', error);
+                    // Re-enable immediately on failure; success is handled by onAuthStateChanged.
+                    setLoadingState(false);
+                })
+                .finally(() => {
+                    authPopupInProgress = false;
+                    signInButton.textContent = signInLabel;
+                });
         });
 
         signOutButton.addEventListener('click', () => {
+            if (authPopupInProgress) return;
             setLoadingState(true);
+            signOutButton.textContent = 'Signing out...';
             auth.signOut().catch(error => {
                 console.error('Sign out failed:', error);
                 setLoadingState(false);
+            }).finally(() => {
+                signOutButton.textContent = signOutLabel;
             });
         });
 
