@@ -45,6 +45,7 @@
     const lastMoveTiles = [];
     const moveHistory = [];
 	    let currentMoveNumber = 1;
+	    let currentHistoryIndex = -1;
 	    let pendingPromotion = null;
 		    let isGameOver = false;
 		    let activeLobbyId = null;
@@ -2118,7 +2119,19 @@ function startNewGame(mode) {
 
         if (event.key === 'ArrowLeft') {
             event.preventDefault();
-            navigateHistory(-1);
+            // If not in history mode, enter history mode and go back one move
+            if (currentHistoryIndex === -1) {
+                // Enter history mode by going to the previous move
+                if (moveHistory.length > 0) {
+                    currentHistoryIndex = moveHistory.length - 1;
+                    replayToPosition(currentHistoryIndex + 1, true, true);
+                    isGameOver = false;
+                    updateHistoryHighlight();
+                }
+            } else {
+                // Already in history mode, go back another move
+                navigateHistory(-1);
+            }
         } else if (event.key === 'ArrowRight') {
             event.preventDefault();
             navigateHistory(1);
