@@ -166,6 +166,51 @@ body {
     transition: background-color 220ms ease;
 }
 
+.player-label {
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 0.35rem 0.75rem;
+    border-radius: 999px;
+    background: rgba(17, 18, 22, 0.86);
+    color: #ffffff;
+    font-weight: 700;
+    font-size: 0.9rem;
+    letter-spacing: 0.02em;
+    z-index: 50;
+    user-select: none;
+    pointer-events: none;
+}
+
+.player-label-top {
+    top: 0.75rem;
+}
+
+.player-label-bottom {
+    bottom: 0.75rem;
+}
+
+.turn-indicator {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    padding: 0.5rem 1rem;
+    border-radius: 12px;
+    background: rgba(60, 85, 200, 0.95);
+    color: #ffffff;
+    font-weight: 700;
+    font-size: 1rem;
+    letter-spacing: 0.02em;
+    z-index: 100;
+    user-select: none;
+    pointer-events: none;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    backdrop-filter: blur(4px);
+    text-align: center;
+    min-width: 160px;
+}
+
 #board-container.board-turn-black {
     background: #000000;
 }
@@ -235,7 +280,7 @@ body {
     pointer-events: auto;
     user-select: none;
     object-fit: contain;
-    transition: left 220ms ease-out, top 220ms ease-out;
+    transition: left 600ms ease-in-out, top 600ms ease-in-out;
     cursor: pointer;
 }
 
@@ -293,6 +338,23 @@ body {
 
 .hex-tile.tile-capture {
     background: #f5a6a6 !important;
+}
+
+.hex-tile.tile-opponent-move {
+    z-index: 10;
+}
+
+.hex-tile.tile-opponent-move::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 28%;
+    height: 28%;
+    background: #ff8c00;
+    border-radius: 50%;
+    pointer-events: none;
 }
 
 .hex-tile.tile-last-move {
@@ -406,6 +468,26 @@ body {
     color: #1a1a1a;
     box-shadow: 0 0 0 2px rgba(255, 193, 7, 0.6);
     border-radius: 4px;
+}
+
+.history-indicator {
+    display: inline;
+    margin-left: 0.5rem;
+    color: #ff6b35;
+    font-weight: 600;
+    font-size: 0.85rem;
+}
+
+.exit-history-button {
+    width: 100%;
+    margin-top: 0.75rem;
+    background: #ff6b35;
+    font-weight: 700;
+}
+
+.exit-history-button:hover {
+    background: #e55a25;
+    transform: translateY(-1px);
 }
 
 .move-notation {

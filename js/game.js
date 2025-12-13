@@ -2,6 +2,7 @@
     const BOARD_RADIUS = 5; // Creates 91 tiles for Gliński's board
     const SQRT3 = Math.sqrt(3);
     const BOARD_FLIP_DELAY = 676; // Delay for board flip animation in milliseconds
+    const HISTORY_MODE_ENABLED = true;
 
     const appRoot = document.getElementById('app');
     if (!appRoot) {
@@ -12,6 +13,8 @@
     let firebaseAppInstance = null;
     let firebaseDatabaseInstance = null;
     let newGameNoticeTimeoutId = null;
+let turnIndicatorTimeoutId = null;
+let playerLabelsTimeoutId = null;
 
     const authUI = buildAuthPopup();
     if (authUI && document.body) {
@@ -44,10 +47,18 @@
     const lastMoveTiles = [];
     const moveHistory = [];
 	    let currentMoveNumber = 1;
+	    let currentHistoryIndex = -1;
 	    let pendingPromotion = null;
-	    let isGameOver = false;
-	    let activeLobbyId = null;
-	    let onlineModalAction = 'close';
+		    let isGameOver = false;
+		    let activeLobbyId = null;
+		    let onlineModalAction = 'close';
+		    let onlineSession = null;
+		    let activeLobbyRef = null;
+		    let activeLobbyValueListener = null;
+		    let activeMovesRef = null;
+		    let activeMovesChildAddedListener = null;
+		    const pendingOnlineMovesByPly = new Map();
+		    let isApplyingOnlineMove = false;
 
     const PIECE_SPRITES = {
         white: {
@@ -155,9 +166,28 @@
     renderTiles(tiles);
     renderLabels(tiles);
 
-    const boardContainer = document.createElement('div');
-    boardContainer.id = 'board-container';
-    boardContainer.appendChild(board);
+	    const boardContainer = document.createElement('div');
+	    boardContainer.id = 'board-container';
+	
+  const playerLabelTop = document.createElement('div');
+    playerLabelTop.id = 'player-label-top';
+    playerLabelTop.className = 'player-label player-label-top';
+    playerLabelTop.hidden = true;
+
+    const playerLabelBottom = document.createElement('div');
+    playerLabelBottom.id = 'player-label-bottom';
+    playerLabelBottom.className = 'player-label player-label-bottom';
+    playerLabelBottom.hidden = true;
+
+    const turnIndicator = document.createElement('div');
+    turnIndicator.id = 'turn-indicator';
+    turnIndicator.className = 'turn-indicator';
+    turnIndicator.hidden = true;
+
+    boardContainer.appendChild(playerLabelTop);
+    boardContainer.appendChild(playerLabelBottom);
+    boardContainer.appendChild(turnIndicator);
+	    boardContainer.appendChild(board);
 
     const gameOverOverlay = buildGameOverOverlay();
     boardContainer.appendChild(gameOverOverlay);
@@ -179,8 +209,10 @@
     appRoot.appendChild(promotionModal);
     appRoot.appendChild(onlineGameModal);
 
-    // Add keyboard event listener for history navigation
-    document.addEventListener('keydown', handleKeyDown);
+	    // Add keyboard event listener for history navigation (currently disabled).
+	    if (HISTORY_MODE_ENABLED) {
+	        document.addEventListener('keydown', handleKeyDown);
+	    }
 
     initEmptyBoard();
 
@@ -304,6 +336,12 @@
         if (isGameOver) {
             return;
         }
+
+	        if (!canMakeOnlineMoveNow()) {
+	            clearSelection();
+	            showNewGameNotice('Waiting for opponent...');
+	            return;
+	        }
         
         // Exit history mode when making a move
         if (currentHistoryIndex !== -1) {
@@ -334,7 +372,13 @@
             return;
         }
         if (piece.color !== currentTurn) {
-            clearSelection();
+            // Show opponent piece moves with light orange highlighting
+            const moves = getLegalMovesForPiece(piece);
+            if (moves.length > 0) {
+                highlightOpponentPieceMoves(piece, moves);
+            } else {
+                clearSelection();
+            }
             return;
         }
         const moves = getLegalMovesForPiece(piece);
@@ -380,6 +424,16 @@
         });
     }
 
+    function highlightOpponentPieceMoves(piece, moves) {
+        clearHighlightedTiles();
+        highlightTile(piece.q, piece.r, 'tile-selected');
+        moves.forEach(move => {
+            const targetQ = move.triggerQ ?? move.q;
+            const targetR = move.triggerR ?? move.r;
+            highlightTile(targetQ, targetR, 'tile-opponent-move');
+        });
+    }
+
     function highlightTile(q, r, className) {
         const tileElement = tileElements.get(coordKey(q, r));
         if (!tileElement) {
@@ -393,7 +447,7 @@
 
     function clearHighlightedTiles() {
         highlightedTiles.forEach(tileEl => {
-            tileEl.classList.remove('tile-selected', 'tile-move', 'tile-move-friendly', 'tile-capture');
+            tileEl.classList.remove('tile-selected', 'tile-move', 'tile-move-friendly', 'tile-capture', 'tile-opponent-move');
         });
         highlightedTiles.length = 0;
     }
@@ -1001,10 +1055,27 @@
         if (!selectedPieceId) {
             return;
         }
+	        if (!canMakeOnlineMoveNow()) {
+	            clearSelection();
+	            showNewGameNotice('Waiting for opponent...');
+	            return;
+	        }
         const piece = piecesById.get(selectedPieceId);
         if (!piece) {
             return;
         }
+	        if (piece.color !== currentTurn) {
+	            clearSelection();
+	            return;
+	        }
+	        if (
+	            onlineSession?.lobbyId &&
+	            (onlineSession?.myColor === 'white' || onlineSession?.myColor === 'black') &&
+	            piece.color !== onlineSession.myColor
+	        ) {
+	            clearSelection();
+	            return;
+	        }
         const fromQ = piece.q;
         const fromR = piece.r;
         const fromKey = coordKey(piece.q, piece.r);
@@ -1024,16 +1095,33 @@
                 toQ: move.q,
                 toR: move.r,
                 isCapture: isCapture,
+	                captureId: move.captureId ?? null,
                 castle: move.castle
             };
             showPromotionModal(piece.color);
             return;
         }
 
-        completeMove(piece, fromQ, fromR, move, isCapture);
+        completeMove(piece, fromQ, fromR, move, isCapture, null, move.captureId ?? null);
     }
 
-    function completeMove(piece, fromQ, fromR, move, isCapture, promotionType = null) {
+    function completeMove(piece, fromQ, fromR, move, isCapture, promotionType = null, captureId = null) {
+	        if (!isApplyingOnlineMove) {
+	            if (piece.color !== currentTurn) {
+	                return;
+	            }
+	            if (onlineSession?.lobbyId) {
+	                if (!canMakeOnlineMoveNow()) {
+	                    return;
+	                }
+	                if (
+	                    (onlineSession?.myColor === 'white' || onlineSession?.myColor === 'black') &&
+	                    piece.color !== onlineSession.myColor
+	                ) {
+	                    return;
+	                }
+	            }
+	        }
         if (move.castle) {
             const rook = piecesById.get(move.castle.rookId ?? '');
             if (rook && !rook.isCaptured) {
@@ -1062,12 +1150,25 @@
         boardOccupancy.set(destinationKey, piece.id);
         updatePiecePosition(piece);
         
-        const moveNotation = createMoveNotation(piece, fromQ, fromR, piece.q, piece.r, isCapture, move.castle, promotionType);
-        addMoveToHistory(moveNotation, piece.color, piece, fromQ, fromR, piece.q, piece.r, isCapture, move.castle, promotionType);
-        
-        highlightLastMove(fromQ, fromR, piece.q, piece.r);
-        clearSelection();
-        endTurn(piece);
+		        const moveNotation = createMoveNotation(piece, fromQ, fromR, piece.q, piece.r, isCapture, move.castle, promotionType);
+		        addMoveToHistory(
+		            moveNotation,
+		            piece.color,
+		            piece,
+		            fromQ,
+		            fromR,
+		            piece.q,
+		            piece.r,
+		            isCapture,
+		            move.castle,
+		            promotionType,
+		            captureId ?? null
+		        );
+		        syncOnlineMoveIfNeeded(piece, fromQ, fromR, move, promotionType, captureId);
+	        
+	        highlightLastMove(fromQ, fromR, piece.q, piece.r);
+	        clearSelection();
+	        endTurn(piece);
     }
 
     function showPromotionModal(color) {
@@ -1090,14 +1191,111 @@
     function handlePromotionChoice(promotionType) {
         if (!pendingPromotion) return;
         
-        const { piece, fromQ, fromR, toQ, toR, isCapture, castle } = pendingPromotion;
+        const { piece, fromQ, fromR, toQ, toR, isCapture, captureId, castle } = pendingPromotion;
+
+	        if (onlineSession?.lobbyId) {
+	            if (!canMakeOnlineMoveNow()) {
+	                hidePromotionModal();
+	                pendingPromotion = null;
+	                showNewGameNotice('Waiting for opponent...');
+	                return;
+	            }
+	            if (
+	                (onlineSession?.myColor === 'white' || onlineSession?.myColor === 'black') &&
+	                piece?.color &&
+	                piece.color !== onlineSession.myColor
+	            ) {
+	                hidePromotionModal();
+	                pendingPromotion = null;
+	                return;
+	            }
+	        }
+	        if (piece?.color && piece.color !== currentTurn) {
+	            hidePromotionModal();
+	            pendingPromotion = null;
+	            return;
+	        }
         
         hidePromotionModal();
         
-        completeMove(piece, fromQ, fromR, { q: toQ, r: toR, castle: castle }, isCapture, promotionType);
+        completeMove(piece, fromQ, fromR, { q: toQ, r: toR, castle: castle }, isCapture, promotionType, captureId ?? null);
         
         pendingPromotion = null;
     }
+
+		    function syncOnlineMoveIfNeeded(piece, fromQ, fromR, move, promotionType, captureId) {
+		        if (isApplyingOnlineMove) {
+		            return;
+		        }
+		        if (!onlineSession?.lobbyId) {
+		            return;
+		        }
+		        if (!ensureFirebaseDatabase()) {
+		            return;
+		        }
+		        const myColor = onlineSession?.myColor;
+		        if (!myColor) {
+		            return;
+		        }
+		        if (myColor !== 'both' && myColor !== piece.color) {
+		            return;
+		        }
+		        if (!authenticatedUser?.uid) {
+		            return;
+		        }
+		        const expectedUid = expectedUidForColor(piece.color);
+		        if (!expectedUid || expectedUid !== authenticatedUser.uid) {
+		            return;
+		        }
+		        const ply = moveHistory.length - 1;
+		        if (ply < 0) {
+		            return;
+		        }
+		        const nextTurn = piece.color === 'white' ? 'black' : 'white';
+		        const lobbyId = onlineSession.lobbyId;
+		        const lobbyRef = firebaseDatabaseInstance.ref(`lobbies/${lobbyId}`);
+		        const moveRef = lobbyRef.child('moves').child(String(ply));
+		        const record = {
+		            v: 1,
+		            ply,
+		            byUid: authenticatedUser.uid,
+		            color: piece.color,
+		            nextTurn,
+		            pieceId: piece.id,
+		            from: { q: fromQ, r: fromR },
+		            to: { q: move.q, r: move.r },
+		            captureId: typeof captureId === 'string' ? captureId : null,
+		            castle: move.castle
+		                ? {
+		                        rookId: move.castle.rookId ?? null,
+		                        rookToQ: move.castle.rookToQ,
+		                        rookToR: move.castle.rookToR
+		                    }
+		                : null,
+		            promotionType: promotionType || null,
+		            createdAt: firebase.database.ServerValue.TIMESTAMP
+		        };
+
+		        moveRef
+		            .transaction(current => {
+		                if (current) {
+		                    return; // abort
+		                }
+		                return record;
+		            })
+		            .then(result => {
+		                if (!result?.committed) {
+		                    return;
+		                }
+		                return lobbyRef.child('game').update({
+		                    currentTurn: nextTurn,
+		                    updatedAt: firebase.database.ServerValue.TIMESTAMP
+		                });
+		            })
+		            .catch(error => {
+		                console.warn('Failed to sync move:', error);
+		            });
+		    }
 
     function highlightLastMove(fromQ, fromR, toQ, toR) {
         clearLastMoveHighlight();
@@ -1132,7 +1330,7 @@
         }
     }
 
-    function updatePiecePosition(piece) {
+    function updatePiecePosition(piece, animate = true) {
         if (!piece.element) {
             return;
         }
@@ -1140,8 +1338,15 @@
         if (!position) {
             return;
         }
+        if (!animate) {
+            piece.element.style.transition = 'none';
+        }
         piece.element.style.left = `${position.centerX - pieceSize / 2}px`;
         piece.element.style.top = `${position.centerY - pieceSize / 2}px`;
+        if (!animate) {
+            void piece.element.offsetWidth;
+            piece.element.style.transition = '';
+        }
     }
 
     function renderLabels(tilesArray) {
@@ -1401,10 +1606,10 @@
         const joinOption = document.createElement('option');
         joinOption.value = 'join-online';
         joinOption.textContent = 'Join Online Lobby';
-        select.appendChild(joinOption);
+	        select.appendChild(joinOption);
 
-        topRow.appendChild(newGameButton);
-        topRow.appendChild(select);
+	        topRow.appendChild(newGameButton);
+	        topRow.appendChild(select);
 
         const notice = document.createElement('div');
         notice.id = 'new-game-notice';
@@ -1472,8 +1677,17 @@
         movesList.id = 'moves-list';
         movesList.className = 'moves-list';
 
+        const exitHistoryButton = document.createElement('button');
+        exitHistoryButton.type = 'button';
+        exitHistoryButton.id = 'exit-history-button';
+        exitHistoryButton.className = 'control-button exit-history-button';
+        exitHistoryButton.textContent = 'EXIT HISTORY MODE';
+        exitHistoryButton.style.display = 'none';
+        exitHistoryButton.addEventListener('click', exitHistoryMode);
+
         sidebar.appendChild(header);
         sidebar.appendChild(movesList);
+        sidebar.appendChild(exitHistoryButton);
 
         return sidebar;
     }
@@ -1639,8 +1853,9 @@
         flipBoard();
     }
 
-    function startNewGame(mode) {
+function startNewGame(mode) {
         if (mode === 'local') {
+            clearOnlineSession();
             if (pendingFlipTimeoutId !== null) {
                 clearTimeout(pendingFlipTimeoutId);
                 pendingFlipTimeoutId = null;
@@ -1651,65 +1866,100 @@
             clearHistory();
             resetBoard();
             hideGameOverOverlay();
+            updateTurnIndicator();
             return;
         }
 
-        if (mode === 'create-online') {
-            if (!authenticatedUser) {
-                showNewGameNotice('Please sign in to create an online game.');
-                return;
-            }
-            hideNewGameNotice();
-            createOnlineGameLobby();
-            return;
-        }
+	        if (mode === 'create-online') {
+	            if (!authenticatedUser) {
+	                showNewGameNotice('Please sign in to create an online game.');
+	                return;
+	            }
+	            hideNewGameNotice();
+	            clearOnlineSession();
+	            createOnlineGameLobby();
+	            return;
+	        }
 
-        if (mode === 'join-online') {
-            if (!authenticatedUser) {
-                showNewGameNotice('Please sign in to join an online lobby.');
-                return;
-            }
-            hideNewGameNotice();
-            const lobbyId = window.prompt('Enter Lobby ID to join:');
-            if (!lobbyId) {
-                return;
-            }
-            joinOnlineLobby(lobbyId.trim().toUpperCase());
-        }
-    }
+	        if (mode === 'join-online') {
+	            if (!authenticatedUser) {
+	                showNewGameNotice('Please sign in to join an online lobby.');
+	                return;
+	            }
+	            hideNewGameNotice();
+	            clearOnlineSession();
+	            const lobbyId = window.prompt('Enter Lobby ID to join:');
+	            if (!lobbyId) {
+	                return;
+	            }
+	            joinOnlineLobby(lobbyId.trim().toUpperCase());
+	        }
+	    }
 
-    function flipBoard() {
-        isBoardFlipped = !isBoardFlipped;
-        boardContainer.classList.toggle('board-flipped', isBoardFlipped);
-    }
+	    function flipBoard() {
+	        isBoardFlipped = !isBoardFlipped;
+	        boardContainer.classList.toggle('board-flipped', isBoardFlipped);
+	        updateOnlinePlayerLabels();
+	    }
 
-    function applyBoardOrientationForCurrentTurn() {
-        const isBlackTurn = currentTurn === 'black';
-        const shouldBeFlipped = isBlackTurn;
-        
-        // Force a transition by first removing the class, then adding it
-        if (isBoardFlipped === shouldBeFlipped) {
-            // No change needed, but force animation anyway
-            boardContainer.classList.remove('board-flipped');
-            void boardContainer.offsetWidth; // Force reflow
-        }
-        
-        isBoardFlipped = shouldBeFlipped;
-        boardContainer.classList.toggle('board-flipped', isBoardFlipped);
-        boardContainer.classList.toggle('board-turn-black', isBlackTurn);
-    }
+		    function applyBoardOrientationForCurrentTurn() {
+		        const isBlackTurn = currentTurn === 'black';
+		        boardContainer.classList.toggle('board-turn-black', isBlackTurn);
+
+		        if (onlineSession && onlineSession.lobbyId) {
+		            // In online games, always orient the board so the current player is at the bottom
+		            if (onlineSession.myColor !== 'both') {
+		                // For regular online games, keep the player's color at the bottom
+		                const shouldBeFlipped = onlineSession.myColor === 'black';
+		                if (isBoardFlipped !== shouldBeFlipped) {
+		                    isBoardFlipped = shouldBeFlipped;
+		                    boardContainer.classList.toggle('board-flipped', isBoardFlipped);
+		                    updateOnlinePlayerLabels();
+		                }
+		                return;
+		            }
+		            // For self-play (both colors), flip based on current turn
+		        }
+		        const shouldBeFlipped = isBlackTurn;
+		        
+		        // Force a transition by first removing the class, then adding it
+		        if (isBoardFlipped === shouldBeFlipped) {
+	            // No change needed, but force animation anyway
+	            boardContainer.classList.remove('board-flipped');
+	            void boardContainer.offsetWidth; // Force reflow
+	        }
+	        
+	        isBoardFlipped = shouldBeFlipped;
+	        boardContainer.classList.toggle('board-flipped', isBoardFlipped);
+	        updateOnlinePlayerLabels();
+	    }
 
     function endTurn(piece) {
         currentTurn = piece.color === 'white' ? 'black' : 'white';
         if (pendingFlipTimeoutId !== null) {
             clearTimeout(pendingFlipTimeoutId);
         }
-        pendingFlipTimeoutId = window.setTimeout(() => {
+        
+        // Update turn indicator for online games
+        if (onlineSession && onlineSession.lobbyId) {
+            updateTurnIndicator();
+        }
+        
+        // In online multiplayer, don't flip the board - keep current player at bottom
+        if (onlineSession && onlineSession.lobbyId && onlineSession.myColor !== 'both') {
+            // Just update the turn indicator, but don't flip the board
             applyBoardOrientationForCurrentTurn();
-            pendingFlipTimeoutId = null;
-        }, BOARD_FLIP_DELAY);
-        updateKingInCheckHighlight();
-        checkForCheckmate();
+            updateKingInCheckHighlight();
+            checkForCheckmate();
+        } else {
+            // For local games or self-play, use the delayed flip animation
+            pendingFlipTimeoutId = window.setTimeout(() => {
+                applyBoardOrientationForCurrentTurn();
+                pendingFlipTimeoutId = null;
+            }, BOARD_FLIP_DELAY);
+            updateKingInCheckHighlight();
+            checkForCheckmate();
+        }
     }
 
     function clearKingInCheckHighlights() {
@@ -1775,21 +2025,33 @@
         pawnStartingSquares.black.clear();
     }
 
-    function addMoveToHistory(notation, color, piece, fromQ, fromR, toQ, toR, isCapture, castleInfo, promotionType) {
-        moveHistory.push({
-            notation: notation,
-            color: color,
-            moveNumber: currentMoveNumber,
-            piece: { ...piece }, // Store piece data
-            fromQ: fromQ,
-            fromR: fromR,
-            toQ: toQ,
-            toR: toR,
-            isCapture: isCapture,
-            castle: castleInfo,
-            promotionType: promotionType,
-            capturedPieceId: isCapture ? boardOccupancy.get(coordKey(toQ, toR)) : null
-        });
+	    function addMoveToHistory(
+	        notation,
+	        color,
+	        piece,
+	        fromQ,
+	        fromR,
+	        toQ,
+	        toR,
+	        isCapture,
+	        castleInfo,
+	        promotionType,
+	        capturedPieceId
+	    ) {
+	        moveHistory.push({
+	            notation: notation,
+	            color: color,
+	            moveNumber: currentMoveNumber,
+	            piece: { ...piece }, // Store piece data
+	            fromQ: fromQ,
+	            fromR: fromR,
+	            toQ: toQ,
+	            toR: toR,
+	            isCapture: isCapture,
+	            castle: castleInfo,
+	            promotionType: promotionType,
+	            capturedPieceId: isCapture ? (capturedPieceId ?? null) : null
+	        });
         
         if (color === 'black') {
             currentMoveNumber++;
@@ -1818,6 +2080,7 @@
             const whiteMoveSpan = document.createElement('span');
             whiteMoveSpan.className = 'move-white move-notation';
             whiteMoveSpan.textContent = whiteMove.notation || '??';
+            whiteMoveSpan.addEventListener('click', () => jumpToMove(i));
             
             movePair.appendChild(moveNumber);
             movePair.appendChild(whiteMoveSpan);
@@ -1827,6 +2090,7 @@
                 const blackMoveSpan = document.createElement('span');
                 blackMoveSpan.className = 'move-black move-notation';
                 blackMoveSpan.textContent = blackMove.notation || '??';
+                blackMoveSpan.addEventListener('click', () => jumpToMove(i + 1));
                 movePair.appendChild(blackMoveSpan);
             }
             
@@ -1834,6 +2098,15 @@
         }
         
         movesList.scrollTop = movesList.scrollHeight;
+    }
+
+    function jumpToMove(moveIndex) {
+        if (moveIndex < 0 || moveIndex >= moveHistory.length) return;
+        
+        currentHistoryIndex = moveIndex;
+        replayToPosition(moveIndex + 1, true);
+        isGameOver = false;
+        updateHistoryHighlight();
     }
 
     function clearHistory() {
@@ -1860,7 +2133,19 @@
 
         if (event.key === 'ArrowLeft') {
             event.preventDefault();
-            navigateHistory(-1);
+            // If not in history mode, enter history mode and go back one move
+            if (currentHistoryIndex === -1) {
+                // Enter history mode by going to the previous move
+                if (moveHistory.length > 0) {
+                    currentHistoryIndex = moveHistory.length - 1;
+                    replayToPosition(currentHistoryIndex + 1, true, true);
+                    isGameOver = false;
+                    updateHistoryHighlight();
+                }
+            } else {
+                // Already in history mode, go back another move
+                navigateHistory(-1);
+            }
         } else if (event.key === 'ArrowRight') {
             event.preventDefault();
             navigateHistory(1);
@@ -1870,6 +2155,7 @@
     function navigateHistory(direction) {
         if (moveHistory.length === 0) return;
 
+        const oldIndex = currentHistoryIndex;
         const newIndex = currentHistoryIndex + direction;
         
         // Clamp to valid range: -1 (latest) to moveHistory.length - 1 (first move)
@@ -1881,14 +2167,17 @@
         
         currentHistoryIndex = clampedIndex;
         
+        // Check if we're going backwards (left arrow)
+        const goingBackwards = direction < 0;
+        
         if (currentHistoryIndex === -1) {
             // Show the latest position - replay all moves
-            replayToPosition(moveHistory.length);
+            replayToPosition(moveHistory.length, true, goingBackwards);
             // Restore actual game state
             isGameOver = checkForGameOverState();
         } else {
             // Show position up to currentHistoryIndex
-            replayToPosition(currentHistoryIndex + 1);
+            replayToPosition(currentHistoryIndex + 1, true, goingBackwards);
             // When viewing history, we're not in a game over state
             isGameOver = false;
         }
@@ -1911,8 +2200,173 @@
         return false;
     }
 
-    function replayToPosition(moveCount) {
-        // Reset board to starting position
+    function replayToPosition(moveCount, animateLastMove = false, reverseAnimation = false) {
+        // If going backwards and animating, we need to show the piece at its destination first,
+        // then animate it back to its source
+        if (animateLastMove && reverseAnimation && moveCount > 0) {
+            const moveToAnimate = moveHistory[moveCount - 1];
+            if (moveToAnimate) {
+                // First, set up the board at the target position (moveCount)
+                initEmptyBoard();
+                const freshPieces = createInitialPieces();
+                placePieces(freshPieces);
+                currentTurn = 'white';
+                clearLastMoveHighlight();
+                clearSelection();
+                
+                // Replay all moves up to moveCount WITHOUT animation
+                for (let i = 0; i < moveCount && i < moveHistory.length; i++) {
+                    const move = moveHistory[i];
+                    const pieceId = move.piece.id;
+                    const piece = piecesById.get(pieceId);
+                    
+                    if (!piece) continue;
+                    
+                    if (move.isCapture && move.capturedPieceId) {
+                        const capturedPiece = piecesById.get(move.capturedPieceId);
+                        if (capturedPiece) {
+                            const capturedKey = coordKey(capturedPiece.q, capturedPiece.r);
+                            boardOccupancy.delete(capturedKey);
+                            capturedPiece.isCaptured = true;
+                            if (capturedPiece.element?.parentNode) {
+                                capturedPiece.element.parentNode.removeChild(capturedPiece.element);
+                            }
+                        }
+                    }
+                    
+                    if (move.castle) {
+                        const rook = piecesById.get(move.castle.rookId ?? '');
+                        if (rook && !rook.isCaptured) {
+                            const rookFromKey = coordKey(rook.q, rook.r);
+                            boardOccupancy.delete(rookFromKey);
+                            rook.q = move.castle.rookToQ;
+                            rook.r = move.castle.rookToR;
+                            rook.hasMoved = true;
+                            const rookDestinationKey = coordKey(rook.q, rook.r);
+                            boardOccupancy.set(rookDestinationKey, rook.id);
+                            updatePiecePosition(rook, false);
+                        }
+                    }
+                    
+                    if (move.promotionType) {
+                        piece.type = move.promotionType;
+                        piece.element.src = PIECE_SPRITES[piece.color][move.promotionType];
+                        piece.element.alt = `${piece.color} ${move.promotionType}`;
+                    }
+                    
+                    const fromKey = coordKey(piece.q, piece.r);
+                    boardOccupancy.delete(fromKey);
+                    
+                    piece.q = move.toQ;
+                    piece.r = move.toR;
+                    piece.hasMoved = true;
+                    
+                    const destinationKey = coordKey(piece.q, piece.r);
+                    boardOccupancy.set(destinationKey, piece.id);
+                    updatePiecePosition(piece, false);
+                    
+                    currentTurn = move.color === 'white' ? 'black' : 'white';
+                }
+                
+                // Now animate the last move in reverse
+                const pieceId = moveToAnimate.piece.id;
+                const piece = piecesById.get(pieceId);
+                
+                if (piece && piece.element) {
+                    // Temporarily position piece at destination (toQ, toR)
+                    const destPos = tilePositions.get(coordKey(moveToAnimate.toQ, moveToAnimate.toR));
+                    if (destPos) {
+                        piece.element.style.transition = 'none';
+                        piece.element.style.left = `${destPos.centerX - pieceSize / 2}px`;
+                        piece.element.style.top = `${destPos.centerY - pieceSize / 2}px`;
+                        void piece.element.offsetWidth; // Force reflow
+                        piece.element.style.transition = '';
+                        
+                        // Now animate back to source (fromQ, fromR)
+                        setTimeout(() => {
+                            const sourcePos = tilePositions.get(coordKey(moveToAnimate.fromQ, moveToAnimate.fromR));
+                            if (sourcePos) {
+                                piece.element.style.left = `${sourcePos.centerX - pieceSize / 2}px`;
+                                piece.element.style.top = `${sourcePos.centerY - pieceSize / 2}px`;
+                            }
+                        }, 10);
+                    }
+                }
+                
+                // Now set up the board at moveCount - 1 (the previous position)
+                setTimeout(() => {
+                    initEmptyBoard();
+                    const freshPieces2 = createInitialPieces();
+                    placePieces(freshPieces2);
+                    currentTurn = 'white';
+                    clearLastMoveHighlight();
+                    clearSelection();
+                    
+                    for (let i = 0; i < moveCount - 1 && i < moveHistory.length; i++) {
+                        const move = moveHistory[i];
+                        const pieceId = move.piece.id;
+                        const piece = piecesById.get(pieceId);
+                        
+                        if (!piece) continue;
+                        
+                        if (move.isCapture && move.capturedPieceId) {
+                            const capturedPiece = piecesById.get(move.capturedPieceId);
+                            if (capturedPiece) {
+                                const capturedKey = coordKey(capturedPiece.q, capturedPiece.r);
+                                boardOccupancy.delete(capturedKey);
+                                capturedPiece.isCaptured = true;
+                                if (capturedPiece.element?.parentNode) {
+                                    capturedPiece.element.parentNode.removeChild(capturedPiece.element);
+                                }
+                            }
+                        }
+                        
+                        if (move.castle) {
+                            const rook = piecesById.get(move.castle.rookId ?? '');
+                            if (rook && !rook.isCaptured) {
+                                const rookFromKey = coordKey(rook.q, rook.r);
+                                boardOccupancy.delete(rookFromKey);
+                                rook.q = move.castle.rookToQ;
+                                rook.r = move.castle.rookToR;
+                                rook.hasMoved = true;
+                                const rookDestinationKey = coordKey(rook.q, rook.r);
+                                boardOccupancy.set(rookDestinationKey, rook.id);
+                                updatePiecePosition(rook, false);
+                            }
+                        }
+                        
+                        if (move.promotionType) {
+                            piece.type = move.promotionType;
+                            piece.element.src = PIECE_SPRITES[piece.color][move.promotionType];
+                            piece.element.alt = `${piece.color} ${move.promotionType}`;
+                        }
+                        
+                        const fromKey = coordKey(piece.q, piece.r);
+                        boardOccupancy.delete(fromKey);
+                        
+                        piece.q = move.toQ;
+                        piece.r = move.toR;
+                        piece.hasMoved = true;
+                        
+                        const destinationKey = coordKey(piece.q, piece.r);
+                        boardOccupancy.set(destinationKey, piece.id);
+                        updatePiecePosition(piece, false);
+                        
+                        currentTurn = move.color === 'white' ? 'black' : 'white';
+                        
+                        if (i === moveCount - 2) {
+                            highlightLastMove(move.fromQ, move.fromR, move.toQ, move.toR);
+                        }
+                    }
+                    
+                    updateKingInCheckHighlight();
+                }, 620);
+                
+                return;
+            }
+        }
+        
+        // Normal forward animation or no animation
         initEmptyBoard();
         const freshPieces = createInitialPieces();
         placePieces(freshPieces);
@@ -1923,6 +2377,8 @@
         // Replay moves up to moveCount
         for (let i = 0; i < moveCount && i < moveHistory.length; i++) {
             const move = moveHistory[i];
+            const isLastMove = (i === moveCount - 1);
+            const shouldAnimate = animateLastMove && isLastMove && !reverseAnimation;
             
             // Find the piece that made this move
             const pieceId = move.piece.id;
@@ -1954,7 +2410,7 @@
                     rook.hasMoved = true;
                     const rookDestinationKey = coordKey(rook.q, rook.r);
                     boardOccupancy.set(rookDestinationKey, rook.id);
-                    updatePiecePosition(rook);
+                    updatePiecePosition(rook, shouldAnimate);
                 }
             }
             
@@ -1975,13 +2431,13 @@
             
             const destinationKey = coordKey(piece.q, piece.r);
             boardOccupancy.set(destinationKey, piece.id);
-            updatePiecePosition(piece);
+            updatePiecePosition(piece, shouldAnimate);
             
             // Update turn
             currentTurn = move.color === 'white' ? 'black' : 'white';
             
             // Highlight the last move if this is the final move being replayed
-            if (i === moveCount - 1) {
+            if (isLastMove) {
                 highlightLastMove(move.fromQ, move.fromR, move.toQ, move.toR);
             }
         }
@@ -1993,6 +2449,7 @@
     function updateHistoryHighlight() {
         const movesList = document.getElementById('moves-list');
         const historyIndicator = document.getElementById('history-indicator');
+        const exitButton = document.getElementById('exit-history-button');
         if (!movesList) return;
         
         // Remove all existing highlights
@@ -2000,7 +2457,7 @@
             el.classList.remove('history-current');
         });
         
-        // Show/hide history indicator
+        // Show/hide history indicator and exit button
         if (historyIndicator) {
             if (currentHistoryIndex >= 0) {
                 historyIndicator.style.display = 'inline';
@@ -2013,6 +2470,10 @@
             }
         }
         
+        if (exitButton) {
+            exitButton.style.display = currentHistoryIndex >= 0 ? 'block' : 'none';
+        }
+        
         // Add highlight to current position
         if (currentHistoryIndex >= 0) {
             const moveElements = movesList.querySelectorAll('.move-notation');
@@ -2020,6 +2481,15 @@
                 moveElements[currentHistoryIndex].classList.add('history-current');
             }
         }
+    }
+
+    function exitHistoryMode() {
+        if (currentHistoryIndex === -1) return;
+        
+        replayToPosition(moveHistory.length, false);
+        currentHistoryIndex = -1;
+        updateHistoryHighlight();
+        isGameOver = checkForGameOverState();
     }
 
 
@@ -2057,18 +2527,474 @@
         modal.style.display = 'flex';
     }
 
-    function hideOnlineGameModal() {
-        const modal = document.getElementById('online-game-modal');
-        if (!modal) {
+	    function hideOnlineGameModal() {
+	        const modal = document.getElementById('online-game-modal');
+	        if (!modal) {
+	            return;
+	        }
+	        modal.style.display = 'none';
+	    }
+
+		    function normalizeLobbyStatus(status) {
+		        return typeof status === 'string' ? status.trim().toLowerCase() : '';
+		    }
+
+	    function stopActiveLobbyListeners() {
+	        if (activeLobbyRef && activeLobbyValueListener) {
+	            activeLobbyRef.off('value', activeLobbyValueListener);
+	        }
+	        activeLobbyRef = null;
+	        activeLobbyValueListener = null;
+
+	        if (activeMovesRef && activeMovesChildAddedListener) {
+	            activeMovesRef.off('child_added', activeMovesChildAddedListener);
+	        }
+	        activeMovesRef = null;
+	        activeMovesChildAddedListener = null;
+	        pendingOnlineMovesByPly.clear();
+	    }
+
+  function updateOnlinePlayerLabels() {
+        const topEl = document.getElementById('player-label-top');
+        const bottomEl = document.getElementById('player-label-bottom');
+        if (!topEl || !bottomEl) {
             return;
         }
-        modal.style.display = 'none';
+        if (!onlineSession || !onlineSession.roles) {
+            topEl.hidden = true;
+            bottomEl.hidden = true;
+            topEl.textContent = '';
+            bottomEl.textContent = '';
+            updateTurnIndicator();
+            return;
+        }
+        const whiteText = onlineSession.roles.whiteName ? `White: ${onlineSession.roles.whiteName}` : 'White';
+        const blackText = onlineSession.roles.blackName ? `Black: ${onlineSession.roles.blackName}` : 'Black';
+        const bottomText = isBoardFlipped ? blackText : whiteText;
+        const topText = isBoardFlipped ? whiteText : blackText;
+        bottomEl.textContent = bottomText;
+        topEl.textContent = topText;
+        topEl.hidden = false;
+        bottomEl.hidden = false;
+        updateTurnIndicator();
+        
+        // Clear any existing timeout for player labels
+        if (playerLabelsTimeoutId !== null) {
+            clearTimeout(playerLabelsTimeoutId);
+        }
+        
+        // Hide the player labels after 3 seconds
+        playerLabelsTimeoutId = window.setTimeout(() => {
+            topEl.hidden = true;
+            bottomEl.hidden = true;
+            playerLabelsTimeoutId = null;
+        }, 3000);
     }
 
-	    function setOnlineModalState({ description, lobbyId, canCopy } = {}) {
-	        const descriptionEl = document.getElementById('online-game-description');
-	        const lobbyIdEl = document.getElementById('online-game-lobby-id');
-	        const copyButton = document.getElementById('online-game-copy');
+    function updateTurnIndicator() {
+        const turnEl = document.getElementById('turn-indicator');
+        if (!turnEl) {
+            return;
+        }
+        
+        if (!onlineSession || !onlineSession.roles) {
+            turnEl.hidden = true;
+            turnEl.textContent = '';
+            return;
+        }
+        
+        const currentTurnText = currentTurn === 'white' ? 'White' : 'Black';
+        const currentTurnName = currentTurn === 'white' ? onlineSession.roles.whiteName : onlineSession.roles.blackName;
+        const playerName = currentTurnName ? currentTurnName : currentTurnText;
+        
+        turnEl.textContent = `${currentTurnText}'s Turn (${playerName})`;
+        turnEl.hidden = false;
+        
+        // Highlight if it's the current player's turn
+        const myColor = onlineSession.myColor;
+        if (myColor && myColor !== 'both' && currentTurn === myColor) {
+            turnEl.style.background = 'rgba(76, 175, 80, 0.95)';
+            turnEl.style.boxShadow = '0 4px 12px rgba(76, 175, 80, 0.4)';
+        } else {
+            turnEl.style.background = 'rgba(60, 85, 200, 0.95)';
+            turnEl.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.3)';
+        }
+        
+        // Clear any existing timeout
+        if (turnIndicatorTimeoutId !== null) {
+            clearTimeout(turnIndicatorTimeoutId);
+        }
+        
+        // Hide the turn indicator after 3 seconds
+        turnIndicatorTimeoutId = window.setTimeout(() => {
+            turnEl.hidden = true;
+            turnIndicatorTimeoutId = null;
+        }, 3000);
+    }
+
+function clearOnlineSession() {
+        stopActiveLobbyListeners();
+        onlineSession = null;
+        activeLobbyId = null;
+        
+        // Clear any pending timeouts
+        if (turnIndicatorTimeoutId !== null) {
+            clearTimeout(turnIndicatorTimeoutId);
+            turnIndicatorTimeoutId = null;
+        }
+        if (playerLabelsTimeoutId !== null) {
+            clearTimeout(playerLabelsTimeoutId);
+            playerLabelsTimeoutId = null;
+        }
+        
+        updateOnlinePlayerLabels();
+        updateTurnIndicator();
+    }
+
+		    function setOnlineSession(session) {
+		        onlineSession = session;
+		        updateOnlinePlayerLabels();
+		    }
+
+		    function setBoardFlippedTo(value) {
+		        const shouldFlip = !!value;
+		        isBoardFlipped = shouldFlip;
+		        boardContainer.classList.toggle('board-flipped', isBoardFlipped);
+		        updateOnlinePlayerLabels();
+		    }
+
+		    function hashStringToUint32(text) {
+		        let hash = 2166136261;
+		        for (let i = 0; i < text.length; i += 1) {
+		            hash ^= text.charCodeAt(i);
+		            hash = Math.imul(hash, 16777619);
+		        }
+		        return hash >>> 0;
+		    }
+
+		    function deriveRolesForUser(lobby, user, lobbyId) {
+		        const roles = lobby?.roles;
+		        if (roles && roles.whiteUid && roles.blackUid) {
+		            const isWhite = user?.uid && roles.whiteUid === user.uid;
+		            const isBlack = user?.uid && roles.blackUid === user.uid;
+		            if (!isWhite && !isBlack) {
+		                return null;
+		            }
+		            if (isWhite && isBlack) {
+		                return {
+		                    myColor: 'both',
+		                    roles: {
+		                        whiteUid: roles.whiteUid,
+		                        blackUid: roles.blackUid,
+		                        whiteName: roles.whiteName || 'White',
+		                        blackName: roles.blackName || 'Black'
+		                    }
+		                };
+		            }
+		            return {
+		                myColor: isWhite ? 'white' : 'black',
+		                roles: {
+		                    whiteUid: roles.whiteUid,
+		                    blackUid: roles.blackUid,
+		                    whiteName: roles.whiteName || 'White',
+		                    blackName: roles.blackName || 'Black'
+		                }
+		            };
+		        }
+
+		        const hostUid = lobby?.host?.uid;
+		        const guestUid = lobby?.guest?.uid;
+		        if (!hostUid || !guestUid || !user?.uid) {
+		            return null;
+		        }
+		        if (hostUid === user.uid && guestUid === user.uid) {
+		            const name = lobby.host?.displayName || lobby.host?.email || user.displayName || user.email || 'Player';
+		            return {
+		                myColor: 'both',
+		                roles: {
+		                    whiteUid: user.uid,
+		                    blackUid: user.uid,
+		                    whiteName: `${name} (White)`,
+		                    blackName: `${name} (Black)`
+		                }
+		            };
+		        }
+
+		        const hostName = lobby.host?.displayName || lobby.host?.email || 'Host';
+		        const guestName = lobby.guest?.displayName || lobby.guest?.email || 'Guest';
+		        const seed = typeof lobbyId === 'string' && lobbyId ? lobbyId : String(lobby?.createdAt || '');
+		        const hostIsWhite = (hashStringToUint32(`${seed}|${hostUid}|${guestUid}`) & 1) === 0;
+		        const resolvedRoles = hostIsWhite
+		            ? {
+		                    whiteUid: hostUid,
+		                    blackUid: guestUid,
+		                    whiteName: hostName,
+		                    blackName: guestName
+		                }
+		            : {
+		                    whiteUid: guestUid,
+		                    blackUid: hostUid,
+		                    whiteName: guestName,
+		                    blackName: hostName
+		                };
+
+		        const isWhite = resolvedRoles.whiteUid === user.uid;
+		        const isBlack = resolvedRoles.blackUid === user.uid;
+		        if (!isWhite && !isBlack) {
+		            return null;
+		        }
+		        return {
+		            myColor: isWhite ? 'white' : 'black',
+		            roles: resolvedRoles
+		        };
+		    }
+
+		    function startLobbyListener(lobbyId, { isHost } = {}) {
+		        if (!ensureFirebaseDatabase()) {
+		            return;
+		        }
+		        stopActiveLobbyListeners();
+		        activeLobbyId = lobbyId;
+		        activeLobbyRef = firebaseDatabaseInstance.ref(`lobbies/${lobbyId}`);
+		        activeLobbyValueListener = snapshot => {
+		            const lobby = snapshot.val();
+		            if (!lobby) {
+		                setOnlineModalAction('close');
+		                setOnlineModalState({
+		                    description: 'Lobby ended.',
+		                    lobbyId: '',
+		                    canCopy: false
+		                });
+		                clearOnlineSession();
+		                return;
+		            }
+
+			            const derived = deriveRolesForUser(lobby, authenticatedUser, lobbyId);
+		            if (derived) {
+		                const hasAppliedInitialOrientation = !!onlineSession?.hasAppliedInitialOrientation;
+		                if (!hasAppliedInitialOrientation) {
+		                    // Always orient the board so the current player is at the bottom
+		                    setBoardFlippedTo(derived.myColor === 'black');
+		                }
+		                setOnlineSession({
+		                    lobbyId,
+		                    isHost: !!isHost,
+		                    myColor: derived.myColor,
+		                    roles: derived.roles,
+		                    hasAppliedInitialOrientation: true
+		                });
+		                startOnlineMoveListener(lobbyId);
+		            }
+
+		            const status = normalizeLobbyStatus(lobby.status);
+		            const guestName = lobby?.guest?.displayName || lobby?.guest?.email || null;
+		            if (isHost && status === 'active' && guestName) {
+		                const youAre = onlineSession?.myColor ? ` You are ${onlineSession.myColor}.` : '';
+		                setOnlineModalAction('close');
+		                setOnlineModalState({
+		                    description: `Player joined: ${guestName}.${youAre}`,
+		                    lobbyId,
+		                    canCopy: true
+		                });
+		                window.setTimeout(() => {
+		                    hideOnlineGameModal();
+		                }, 650);
+		            }
+		        };
+		        activeLobbyRef.on('value', activeLobbyValueListener);
+		    }
+
+		    function expectedUidForColor(color) {
+		        if (!onlineSession?.roles) {
+		            return null;
+		        }
+		        if (color === 'white') {
+		            return onlineSession.roles.whiteUid || null;
+		        }
+		        if (color === 'black') {
+		            return onlineSession.roles.blackUid || null;
+		        }
+		        return null;
+		    }
+
+		    function canMakeOnlineMoveNow() {
+		        if (!onlineSession?.lobbyId) {
+		            return true; // local game
+		        }
+		        if (!authenticatedUser?.uid) {
+		            return false;
+		        }
+		        const myColor = onlineSession?.myColor;
+		        if (!myColor) {
+		            return false;
+		        }
+		        if (myColor === 'both') {
+		            const expectedUid = expectedUidForColor(currentTurn);
+		            if (!expectedUid || expectedUid !== authenticatedUser.uid) {
+		                return false;
+		            }
+		        } else {
+		            const expectedUid = expectedUidForColor(myColor);
+		            if (!expectedUid || expectedUid !== authenticatedUser.uid) {
+		                return false;
+		            }
+		            if (currentTurn !== myColor) {
+		                return false;
+		            }
+		        }
+		        return true;
+		    }
+
+		    function startOnlineMoveListener(lobbyId) {
+		        if (!ensureFirebaseDatabase()) {
+		            return;
+		        }
+		        if (activeMovesRef && activeLobbyId === lobbyId) {
+		            return;
+		        }
+		        if (activeMovesRef && activeMovesChildAddedListener) {
+		            activeMovesRef.off('child_added', activeMovesChildAddedListener);
+		        }
+		        activeMovesRef = firebaseDatabaseInstance.ref(`lobbies/${lobbyId}/moves`);
+		        activeMovesChildAddedListener = snapshot => {
+		            const record = snapshot.val();
+		            if (!record || typeof record.ply !== 'number') {
+		                return;
+		            }
+		            pendingOnlineMovesByPly.set(record.ply, record);
+		            tryApplyPendingOnlineMoves();
+		        };
+		        activeMovesRef.on('child_added', activeMovesChildAddedListener);
+		    }
+
+		    function tryApplyPendingOnlineMoves() {
+		        if (!onlineSession?.lobbyId) {
+		            return;
+		        }
+		        if (!onlineSession?.roles) {
+		            return;
+		        }
+
+		        while (pendingOnlineMovesByPly.has(moveHistory.length)) {
+		            const record = pendingOnlineMovesByPly.get(moveHistory.length);
+		            pendingOnlineMovesByPly.delete(moveHistory.length);
+		            const applied = applyOnlineMoveRecord(record);
+		            if (!applied) {
+		                // If something looks wrong, stop applying further moves.
+		                pendingOnlineMovesByPly.set(record.ply, record);
+		                break;
+		            }
+		        }
+		    }
+
+		    function applyOnlineMoveRecord(record) {
+		        if (!record || typeof record.ply !== 'number') {
+		            return false;
+		        }
+		        if (record.ply !== moveHistory.length) {
+		            return false;
+		        }
+		        if (record.color !== 'white' && record.color !== 'black') {
+		            return false;
+		        }
+
+		        const expectedUid = expectedUidForColor(record.color);
+		        if (!expectedUid || record.byUid !== expectedUid) {
+		            return false;
+		        }
+		        if (record.color !== currentTurn) {
+		            return false;
+		        }
+
+		        const fromQ = record?.from?.q;
+		        const fromR = record?.from?.r;
+		        const toQ = record?.to?.q;
+		        const toR = record?.to?.r;
+		        if (![fromQ, fromR, toQ, toR].every(Number.isFinite)) {
+		            return false;
+		        }
+
+		        const pieceId = typeof record.pieceId === 'string' ? record.pieceId : '';
+		        const piece = piecesById.get(pieceId);
+		        if (!piece || piece.isCaptured) {
+		            return false;
+		        }
+		        if (piece.color !== record.color) {
+		            return false;
+		        }
+		        if (piece.q !== fromQ || piece.r !== fromR) {
+		            return false;
+		        }
+
+		        // Exit history mode when receiving a move.
+		        if (currentHistoryIndex !== -1) {
+		            replayToPosition(moveHistory.length);
+		            currentHistoryIndex = -1;
+		            updateHistoryHighlight();
+		            isGameOver = checkForGameOverState();
+		        }
+
+		        const legalMoves = getLegalMovesForPiece(piece);
+		        const candidate = legalMoves.find(move => move.q === toQ && move.r === toR);
+		        if (!candidate) {
+		            return false;
+		        }
+
+		        const recordCaptureId = typeof record.captureId === 'string' ? record.captureId : null;
+		        if (!!candidate.captureId !== !!recordCaptureId) {
+		            return false;
+		        }
+		        if (recordCaptureId && candidate.captureId !== recordCaptureId) {
+		            return false;
+		        }
+
+		        const recordCastle = record.castle ?? null;
+		        if (recordCastle) {
+		            if (
+		                !candidate.castle ||
+		                candidate.castle.rookId !== recordCastle.rookId ||
+		                candidate.castle.rookToQ !== recordCastle.rookToQ ||
+		                candidate.castle.rookToR !== recordCastle.rookToR
+		            ) {
+		                return false;
+		            }
+		        } else if (candidate.castle) {
+		            return false;
+		        }
+
+		        const recordPromotion = typeof record.promotionType === 'string' ? record.promotionType : null;
+		        if (piece.type === 'pawn' && isPawnPromotionSquare(piece, candidate.q, candidate.r) && !recordPromotion) {
+		            return false;
+		        }
+
+		        const fromKey = coordKey(piece.q, piece.r);
+		        boardOccupancy.delete(fromKey);
+		        if (recordCaptureId) {
+		            capturePiece(recordCaptureId);
+		        }
+
+		        isApplyingOnlineMove = true;
+		        try {
+		            completeMove(
+		                piece,
+		                fromQ,
+		                fromR,
+		                { q: candidate.q, r: candidate.r, castle: candidate.castle },
+		                !!recordCaptureId,
+		                recordPromotion,
+		                recordCaptureId
+		            );
+		        } finally {
+		            isApplyingOnlineMove = false;
+		        }
+		        hideNewGameNotice();
+		        return true;
+		    }
+
+		    function setOnlineModalState({ description, lobbyId, canCopy } = {}) {
+		        const descriptionEl = document.getElementById('online-game-description');
+		        const lobbyIdEl = document.getElementById('online-game-lobby-id');
+		        const copyButton = document.getElementById('online-game-copy');
         if (descriptionEl && typeof description === 'string') {
             descriptionEl.textContent = description;
         }
@@ -2090,9 +3016,8 @@
 
     function generateLobbyId() {
         const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-        const length = Math.floor(Math.random() * 5) + 6; // 6-10 chars
         let id = '';
-        for (let i = 0; i < length; i += 1) {
+        for (let i = 0; i < 6; i += 1) {
             id += chars.charAt(Math.floor(Math.random() * chars.length));
         }
         return id;
@@ -2135,16 +3060,17 @@
 	        const lobbyId = generateLobbyId();
 	        activeLobbyId = lobbyId;
 	        const lobbyRef = firebaseDatabaseInstance.ref(`lobbies/${lobbyId}`);
-        const lobbyData = {
-            createdAt: firebase.database.ServerValue.TIMESTAMP,
-            status: 'waiting',
-            host: {
-                uid: authenticatedUser.uid,
-                displayName: authenticatedUser.displayName || 'Host',
-                email: authenticatedUser.email || null
-            },
-            game: serializeBoardState()
-        };
+	        const lobbyData = {
+	            createdAt: firebase.database.ServerValue.TIMESTAMP,
+	            status: 'waiting',
+	            host: {
+	                uid: authenticatedUser.uid,
+	                displayName: authenticatedUser.displayName || 'Host',
+	                email: authenticatedUser.email || null
+	            },
+	            game: serializeBoardState(),
+	            moves: {}
+	        };
 
 	        showOnlineGameModal();
 	        setOnlineModalAction('cancel');
@@ -2154,22 +3080,30 @@
 	            canCopy: false
 	        });
 
-        lobbyRef
-            .set(lobbyData)
-            .then(() => {
-                setOnlineModalState({
-                    description: 'Lobby created! Share this ID with a friend.',
-                    lobbyId: lobbyId,
-                    canCopy: true
-                });
-            })
-            .catch(error => {
-                console.error('Failed to create lobby:', error);
-                activeLobbyId = null;
-                setOnlineModalState({
-                    description: 'Failed to create lobby. Please try again.',
-                    lobbyId: '',
-                    canCopy: false
+	        lobbyRef
+	            .set(lobbyData)
+	            .then(() => {
+	                setOnlineSession({
+	                    lobbyId,
+	                    isHost: true,
+	                    myColor: null,
+	                    roles: null,
+	                    hasAppliedInitialOrientation: false
+	                });
+	                startLobbyListener(lobbyId, { isHost: true });
+	                setOnlineModalState({
+	                    description: 'Lobby created! Share this ID with a friend.',
+	                    lobbyId: lobbyId,
+	                    canCopy: true
+	                });
+	            })
+	            .catch(error => {
+	                console.error('Failed to create lobby:', error);
+	                clearOnlineSession();
+	                setOnlineModalState({
+	                    description: 'Failed to create lobby. Please try again.',
+	                    lobbyId: '',
+	                    canCopy: false
                 });
             });
     }
@@ -2201,90 +3135,164 @@
         isGameOver = false;
         clearHistory();
         applyBoardOrientationForCurrentTurn();
+        updateTurnIndicator();
     }
 
-		    function joinOnlineLobby(lobbyId) {
-		        if (!ensureFirebaseDatabase()) {
-		            showNewGameNotice('Realtime Database not initialized.');
-		            return;
-		        }
-		        if (!lobbyId) {
-		            return;
-		        }
+			    function joinOnlineLobby(lobbyId) {
+			        if (!ensureFirebaseDatabase()) {
+			            showNewGameNotice('Realtime Database not initialized.');
+			            return;
+			        }
+			        if (!lobbyId) {
+			            return;
+			        }
 
-		        const lobbyRef = firebaseDatabaseInstance.ref(`lobbies/${lobbyId}`);
+			        const lobbyRef = firebaseDatabaseInstance.ref(`lobbies/${lobbyId}`);
 
-		        showOnlineGameModal();
+			        showOnlineGameModal();
+			        setOnlineModalAction('close');
+			        setOnlineModalState({
+			            description: 'Joining lobby…',
+			            lobbyId,
+			            canCopy: false
+			        });
+
+				        const guestData = {
+				            uid: authenticatedUser.uid,
+				            displayName: authenticatedUser.displayName || 'Guest',
+				            email: authenticatedUser.email || null,
+				            joinedAt: firebase.database.ServerValue.TIMESTAMP
+				        };
+
+					        const statusRef = lobbyRef.child('status');
+					        const rolesRef = lobbyRef.child('roles');
+					        let didClaimLobby = false;
+					        let didWriteGuest = false;
+
+				        statusRef
+				            .transaction(status => {
+				                const normalized = normalizeLobbyStatus(status);
+				                if (!normalized || normalized === 'waiting') {
+				                    return 'active';
+				                }
+				                return; // abort
+				            })
+				            .then(result => {
+				                didClaimLobby = !!result?.committed;
+				                return lobbyRef.once('value').then(snapshot => ({
+				                    result,
+				                    lobby: snapshot?.val?.() ?? null
+				                }));
+				            })
+				            .then(({ result, lobby }) => {
+				                if (!lobby) {
+				                    throw new Error('Lobby not found.');
+				                }
+				                const status = normalizeLobbyStatus(lobby.status);
+				                const canRejoin =
+				                    status &&
+				                    status !== 'waiting' &&
+				                    lobby.guest?.uid &&
+				                    lobby.guest.uid === guestData.uid;
+				                if (!result?.committed) {
+				                    if (!canRejoin) {
+				                        if (status && status !== 'waiting') {
+				                            throw new Error('Lobby was already taken.');
+				                        }
+				                        throw new Error('Failed to join lobby. Please try again.');
+				                    }
+				                }
+
+					                const hostUid = lobby.host?.uid;
+					                const hostName = lobby.host?.displayName || lobby.host?.email || 'Host';
+					                const guestName = guestData.displayName || guestData.email || 'Guest';
+					                const guestWrite = lobbyRef
+					                    .child('guest')
+					                    .set(guestData)
+					                    .then(() => {
+					                        didWriteGuest = true;
+					                    });
+					                const rolesWrite = rolesRef.transaction(currentRoles => {
+					                    if (currentRoles && currentRoles.whiteUid && currentRoles.blackUid) {
+					                        return; // abort
+					                    }
+					                    if (!hostUid) {
+					                        return; // abort
+				                    }
+				                    const hostIsWhite = Math.random() < 0.5;
+				                    return {
+				                        whiteUid: hostIsWhite ? hostUid : guestData.uid,
+				                        blackUid: hostIsWhite ? guestData.uid : hostUid,
+				                        whiteName: hostIsWhite ? hostName : guestName,
+				                        blackName: hostIsWhite ? guestName : hostName,
+					                        assignedAt: firebase.database.ServerValue.TIMESTAMP
+					                    };
+					                }).catch(error => {
+					                    console.warn('Failed to assign roles:', error);
+					                });
+					                return Promise.all([guestWrite, rolesWrite]).then(() => lobbyRef.once('value'));
+					            })
+				            .then(snapshot => snapshot?.val?.() ?? null)
+				            .then(lobby => {
+				                if (!lobby) {
+				                    throw new Error('Lobby not found.');
+				                }
+
+				                activeLobbyId = lobbyId;
+				                setOnlineSession({
+				                    lobbyId,
+				                    isHost: false,
+				                    myColor: null,
+				                    roles: null,
+				                    hasAppliedInitialOrientation: false
+				                });
+				                startLobbyListener(lobbyId, { isHost: false });
+
+				                if (lobby.game) {
+				                    applyBoardState(lobby.game);
+				                }
+
+				                const derived = deriveRolesForUser(lobby, authenticatedUser, lobbyId);
+				                const myColor = derived?.myColor || null;
+				                if (derived) {
+				                    setOnlineSession({
+				                        lobbyId,
+				                        isHost: false,
+				                        myColor,
+				                        roles: derived.roles,
+				                        hasAppliedInitialOrientation: true
+				                    });
+				                    // Always orient the board so the current player is at the bottom
+				                    setBoardFlippedTo(myColor === 'black');
+				                }
+
+				                setOnlineModalState({
+				                    description: myColor ? `Joined lobby. You are ${myColor}.` : 'Joined lobby.',
+				                    lobbyId,
+				                    canCopy: true
+				                });
+				                window.setTimeout(() => {
+				                    hideOnlineGameModal();
+				                }, 650);
+				            })
+					            .catch(error => {
+					                console.error('Failed to join lobby:', error);
+					                if (didClaimLobby && !didWriteGuest) {
+					                    statusRef.set('waiting').catch(() => {});
+					                }
+					                clearOnlineSession();
+					                setOnlineModalState({
+					                    description: error.message || 'Failed to join lobby.',
+				                    lobbyId: '',
+				                    canCopy: false
+				                });
+				            });
+				    }
+
+		    function cancelOnlineLobby() {
+		        const lobbyIdToDelete = activeLobbyId;
+		        clearOnlineSession();
 		        setOnlineModalAction('close');
-		        setOnlineModalState({
-		            description: 'Joining lobby…',
-		            lobbyId,
-		            canCopy: false
-		        });
-
-		        const statusRef = lobbyRef.child('status');
-		        const guestData = {
-		            uid: authenticatedUser.uid,
-		            displayName: authenticatedUser.displayName || 'Guest',
-		            email: authenticatedUser.email || null,
-		            joinedAt: firebase.database.ServerValue.TIMESTAMP
-		        };
-
-		        // Ensure the lobby exists before attempting to claim it, then atomically
-		        // flip status from waiting -> active (treat missing status as joinable).
-		        lobbyRef
-		            .once('value')
-		            .then(snapshot => {
-		                const lobby = snapshot.val();
-		                if (!lobby) {
-		                    throw new Error('Lobby not found.');
-		                }
-		                return statusRef.transaction(status => {
-		                    const normalized = typeof status === 'string' ? status.trim().toLowerCase() : null;
-		                    if (!normalized || normalized === 'waiting') {
-		                        return 'active';
-		                    }
-		                    return; // abort
-		                });
-		            })
-		            .then(result => {
-		                if (!result.committed) {
-		                    throw new Error('Lobby was already taken.');
-		                }
-		                // Set guest info separately to avoid overwriting lobby.
-		                return lobbyRef.child('guest').set(guestData);
-		            })
-		            .then(() => lobbyRef.once('value'))
-		            .then(snapshot => {
-		                const lobby = snapshot.val();
-		                if (!lobby) {
-		                    throw new Error('Lobby not found.');
-		                }
-		                activeLobbyId = lobbyId;
-		                if (lobby.game) {
-		                    applyBoardState(lobby.game);
-		                }
-		                setOnlineModalState({
-		                    description: 'Joined lobby. Game is linked (moves not synced yet).',
-		                    lobbyId,
-		                    canCopy: true
-		                });
-		            })
-		            .catch(error => {
-		                console.error('Failed to join lobby:', error);
-		                activeLobbyId = null;
-		                setOnlineModalState({
-		                    description: error.message || 'Failed to join lobby.',
-		                    lobbyId: '',
-		                    canCopy: false
-		                });
-		            });
-		    }
-
-	    function cancelOnlineLobby() {
-	        const lobbyIdToDelete = activeLobbyId;
-	        activeLobbyId = null;
-	        setOnlineModalAction('close');
 
 	        setOnlineModalState({
 	            description: 'Create a lobby to share with a friend.',
