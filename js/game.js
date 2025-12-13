@@ -13,7 +13,6 @@
     let firebaseAppInstance = null;
     let firebaseDatabaseInstance = null;
     let newGameNoticeTimeoutId = null;
-let turnIndicatorTimeoutId = null;
 let playerLabelsTimeoutId = null;
 
     const authUI = buildAuthPopup();
@@ -186,7 +185,6 @@ let playerLabelsTimeoutId = null;
 
     boardContainer.appendChild(playerLabelTop);
     boardContainer.appendChild(playerLabelBottom);
-    boardContainer.appendChild(turnIndicator);
 	    boardContainer.appendChild(board);
 
     const gameOverOverlay = buildGameOverOverlay();
@@ -199,6 +197,8 @@ let playerLabelsTimeoutId = null;
     const sidePanel = document.createElement('div');
     sidePanel.id = 'side-panel';
     sidePanel.appendChild(controls);
+    // Turn indicator should appear between the control buttons and the move list.
+    sidePanel.appendChild(turnIndicator);
     sidePanel.appendChild(historySidebar);
     const promotionModal = buildPromotionModal();
     const onlineGameModal = buildOnlineGameModal();
@@ -1939,11 +1939,7 @@ function startNewGame(mode) {
         if (pendingFlipTimeoutId !== null) {
             clearTimeout(pendingFlipTimeoutId);
         }
-        
-        // Update turn indicator for online games
-        if (onlineSession && onlineSession.lobbyId) {
-            updateTurnIndicator();
-        }
+        updateTurnIndicator();
         
         // In online multiplayer, don't flip the board - keep current player at bottom
         if (onlineSession && onlineSession.lobbyId && onlineSession.myColor !== 'both') {
@@ -2597,21 +2593,20 @@ function startNewGame(mode) {
             return;
         }
         
-        if (!onlineSession || !onlineSession.roles) {
-            turnEl.hidden = true;
-            turnEl.textContent = '';
-            return;
-        }
-        
         const currentTurnText = currentTurn === 'white' ? 'White' : 'Black';
-        const currentTurnName = currentTurn === 'white' ? onlineSession.roles.whiteName : onlineSession.roles.blackName;
-        const playerName = currentTurnName ? currentTurnName : currentTurnText;
-        
-        turnEl.textContent = `${currentTurnText}'s Turn (${playerName})`;
+        const currentTurnName = currentTurn === 'white'
+            ? onlineSession?.roles?.whiteName
+            : onlineSession?.roles?.blackName;
+
+        // In online games, show the player name (if available). In local games, just show the color.
+        turnEl.textContent = currentTurnName
+            ? `${currentTurnText}'s Turn (${currentTurnName})`
+            : `${currentTurnText}'s Turn`;
+
         turnEl.hidden = false;
         
         // Highlight if it's the current player's turn
-        const myColor = onlineSession.myColor;
+        const myColor = onlineSession?.myColor;
         if (myColor && myColor !== 'both' && currentTurn === myColor) {
             turnEl.style.background = 'rgba(76, 175, 80, 0.95)';
             turnEl.style.boxShadow = '0 4px 12px rgba(76, 175, 80, 0.4)';
@@ -2619,17 +2614,6 @@ function startNewGame(mode) {
             turnEl.style.background = 'rgba(60, 85, 200, 0.95)';
             turnEl.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.3)';
         }
-        
-        // Clear any existing timeout
-        if (turnIndicatorTimeoutId !== null) {
-            clearTimeout(turnIndicatorTimeoutId);
-        }
-        
-        // Hide the turn indicator after 3 seconds
-        turnIndicatorTimeoutId = window.setTimeout(() => {
-            turnEl.hidden = true;
-            turnIndicatorTimeoutId = null;
-        }, 3000);
     }
 
 function clearOnlineSession() {
@@ -2638,10 +2622,6 @@ function clearOnlineSession() {
         activeLobbyId = null;
         
         // Clear any pending timeouts
-        if (turnIndicatorTimeoutId !== null) {
-            clearTimeout(turnIndicatorTimeoutId);
-            turnIndicatorTimeoutId = null;
-        }
         if (playerLabelsTimeoutId !== null) {
             clearTimeout(playerLabelsTimeoutId);
             playerLabelsTimeoutId = null;

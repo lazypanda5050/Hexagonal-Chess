@@ -191,10 +191,10 @@ body {
 }
 
 .turn-indicator {
-    position: absolute;
-    left: 50%;
-    top: 50%;
-    transform: translate(-50%, -50%);
+    position: relative;
+    left: auto;
+    top: auto;
+    transform: none;
     padding: 0.5rem 1rem;
     border-radius: 12px;
     background: rgba(60, 85, 200, 0.95);
@@ -208,7 +208,8 @@ body {
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
     backdrop-filter: blur(4px);
     text-align: center;
-    min-width: 160px;
+    width: 100%;
+    min-width: 0;
 }
 
 #board-container.board-turn-black {
