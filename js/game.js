@@ -265,20 +265,10 @@ let playerLabelsTimeoutId = null;
     // Add page unload event listener to clean up online sessions
     window.addEventListener('beforeunload', handlePageUnload);
     window.addEventListener('pagehide', handlePageUnload);
-    
-    // Also handle visibility change for additional cleanup
-    document.addEventListener('visibilitychange', () => {
-        if (document.visibilityState === 'hidden' && activeLobbyId) {
-            // When page becomes hidden, attempt cleanup as additional safety measure
-            // This handles cases like browser tab switching or app suspension
-            setTimeout(() => {
-                // Only cleanup if page is still hidden after a short delay
-                if (document.visibilityState === 'hidden' && activeLobbyId) {
-                    handlePageUnload();
-                }
-            }, 5000); // 5 second delay to avoid premature cleanup
-        }
-    });
+    // Note: do NOT delete lobbies on `visibilitychange`.
+    // Some browsers temporarily hide the page during normal interactions
+    // (tab switching, auth dialogs, app backgrounding) which would otherwise
+    // remove the lobby almost immediately.
 
     function initializeDarkMode() {
         const savedTheme = localStorage.getItem('darkMode');
@@ -2783,23 +2773,51 @@ function startNewGame(mode) {
         }
     }
 
-function handlePageUnload() {
-        // Auto-kick everyone and delete lobby entry when player closes tab
-        if (activeLobbyId && ensureFirebaseDatabase()) {
+function handlePageUnload(event) {
+        // If the browser is putting the page into the back/forward cache, don't
+        // delete the lobby. The page may be restored moments later.
+        if (event && event.type === 'pagehide' && event.persisted) {
+            return;
+        }
+        const lobbyId = activeLobbyId;
+        const session = onlineSession;
+
+        if (!lobbyId || !ensureFirebaseDatabase()) {
+            clearOnlineSession();
+            return;
+        }
+
+        // Only the host should delete the lobby for everyone.
+        // Guests leaving should just clear their slot so someone else can join.
+        if (session && session.lobbyId === lobbyId && !session.isHost) {
             const updates = {};
-            updates[`lobbies/${activeLobbyId}`] = null;
-            updates[`lobbyGames/${activeLobbyId}`] = null;
-            updates[`lobbyMoves/${activeLobbyId}`] = null;
+            updates[`lobbies/${lobbyId}/guest`] = null;
+            updates[`lobbies/${lobbyId}/roles`] = null;
+            updates[`lobbies/${lobbyId}/status`] = 'waiting';
+            updates[`lobbies/${lobbyId}/updatedAt`] = firebase.database.ServerValue.TIMESTAMP;
+            firebaseDatabaseInstance.ref().update(updates).catch(error => {
+                console.warn('Failed to clear guest on page unload:', error);
+            });
+            clearOnlineSession();
+            return;
+        }
+
+        // Host cleanup: delete lobby entry and related game/move data.
+        if (lobbyId) {
+            const updates = {};
+            updates[`lobbies/${lobbyId}`] = null;
+            updates[`lobbyGames/${lobbyId}`] = null;
+            updates[`lobbyMoves/${lobbyId}`] = null;
 
             // Try to delete immediately using Firebase SDK
             firebaseDatabaseInstance.ref().update(updates).catch(error => {
                 console.warn('Failed to delete lobby on page unload:', error);
             });
-            
+
             // Also try using fetch with keepalive as a fallback for better reliability
             // This helps ensure the deletion request completes even during page unload
             try {
-                const deleteUrl = `https://hexagonal-chess-default-rtdb.firebaseio.com/lobbies/${activeLobbyId}.json`;
+                const deleteUrl = `https://hexagonal-chess-default-rtdb.firebaseio.com/lobbies/${lobbyId}.json`;
                 fetch(deleteUrl, {
                     method: 'DELETE',
                     keepalive: true,
