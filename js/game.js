@@ -1762,7 +1762,7 @@ let playerLabelsTimeoutId = null;
 
         const title = document.createElement('div');
         title.className = 'game-over-title';
-        title.textContent = 'Checkmate!';
+        title.textContent = 'Game Over';
 
         const subtitle = document.createElement('div');
         subtitle.className = 'game-over-subtitle';
@@ -1944,14 +1944,21 @@ let playerLabelsTimeoutId = null;
 	        return modal;
 	    }
 
-    function showGameOverOverlay(message) {
+    function showGameOverOverlay(titleOrMessage, subtitleMessage = '') {
         const overlay = document.getElementById('game-over-overlay');
         if (!overlay) {
             return;
         }
+        const title = overlay.querySelector('.game-over-title');
         const subtitle = overlay.querySelector('.game-over-subtitle');
-        if (subtitle) {
-            subtitle.textContent = message;
+
+        // Backwards compatible: if called with just one string, treat it as the subtitle.
+        if (subtitleMessage === '') {
+            if (title) title.textContent = 'Game Over';
+            if (subtitle) subtitle.textContent = String(titleOrMessage ?? '');
+        } else {
+            if (title) title.textContent = String(titleOrMessage ?? 'Game Over');
+            if (subtitle) subtitle.textContent = String(subtitleMessage ?? '');
         }
         overlay.style.display = 'block';
     }
@@ -2116,6 +2123,59 @@ function startNewGame(mode) {
         return hasMoves;
     }
 
+    function getRemainingMaterialCounts() {
+        const makeCounts = () => ({
+            king: 0,
+            queen: 0,
+            rook: 0,
+            bishop: 0,
+            knight: 0,
+            pawn: 0
+        });
+
+        const counts = {
+            white: makeCounts(),
+            black: makeCounts()
+        };
+
+        piecesById.forEach(piece => {
+            if (!piece || piece.isCaptured) return;
+            const color = piece.color;
+            if (color !== 'white' && color !== 'black') return;
+            const type = piece.type;
+            if (typeof counts[color][type] === 'number') {
+                counts[color][type] += 1;
+            }
+        });
+
+        return counts;
+    }
+
+    // Gliński (hex) insufficient material detection (conservative, avoids false draws).
+    //
+    // On a 3-colour hex board, endgame mating material differs from orthodox chess.
+    // Notably, king + two knights CAN mate a lone king in Gliński (per Wikipedia), so we must
+    // NOT auto-draw K+NN vs K.
+    //
+    // We only auto-draw positions that are overwhelmingly safe to treat as "dead":
+    // - no pawns/rooks/queens remain for either side, AND
+    // - each side has at most ONE minor piece (bishop/knight).
+    //
+    // This covers K vs K, K+minor vs K, and K+minor vs K+minor.
+    // We intentionally do NOT auto-draw any position where either side has 2+ minors.
+    function isDrawByInsufficientMaterial() {
+        const counts = getRemainingMaterialCounts();
+
+        const hasMajorsOrPawns =
+            counts.white.queen > 0 || counts.white.rook > 0 || counts.white.pawn > 0 ||
+            counts.black.queen > 0 || counts.black.rook > 0 || counts.black.pawn > 0;
+        if (hasMajorsOrPawns) return false;
+
+        const whiteMinors = counts.white.bishop + counts.white.knight;
+        const blackMinors = counts.black.bishop + counts.black.knight;
+        return whiteMinors <= 1 && blackMinors <= 1;
+    }
+
     function checkForCheckmate() {
         // Don't check for checkmate when viewing history
         if (currentHistoryIndex !== -1) {
@@ -2123,15 +2183,22 @@ function startNewGame(mode) {
         }
         
         const sideToMove = currentTurn;
+
+        if (isDrawByInsufficientMaterial()) {
+            showGameOverOverlay('Draw', 'Insufficient material');
+            isGameOver = true;
+            return;
+        }
+
         const inCheck = isKingInCheck(sideToMove);
         const hasMoves = hasAnyLegalMoves(sideToMove);
         
         if (!hasMoves) {
             if (inCheck) {
                 const winner = sideToMove === 'white' ? 'Black' : 'White';
-                showGameOverOverlay(`Checkmate! ${winner} Wins!`);
+                showGameOverOverlay('Checkmate!', `${winner} wins!`);
             } else {
-                showGameOverOverlay('Stalemate! Draw!');
+                showGameOverOverlay('Draw', 'Stalemate');
             }
             isGameOver = true;
         }
@@ -2311,6 +2378,11 @@ function startNewGame(mode) {
 
     function checkForGameOverState() {
         const sideToMove = currentTurn;
+
+        if (isDrawByInsufficientMaterial()) {
+            return true;
+        }
+
         const inCheck = isKingInCheck(sideToMove);
         const hasMoves = hasAnyLegalMoves(sideToMove);
         
