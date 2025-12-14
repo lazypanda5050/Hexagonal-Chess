@@ -399,7 +399,7 @@ body {
     background: #6ed472;
     border-radius: 50%;
     pointer-events: none;
-    z-index: 20;
+    z-index: 30;
 }
 
 .hex-tile.tile-capture {
@@ -421,7 +421,7 @@ body {
     background: #ff8c00;
     border-radius: 50%;
     pointer-events: none;
-    z-index: 20;
+    z-index: 30;
 }
 
 .hex-tile.tile-last-move {

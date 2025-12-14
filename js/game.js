@@ -2223,7 +2223,15 @@ function startNewGame(mode) {
             }
         } else if (event.key === 'ArrowRight') {
             event.preventDefault();
-            navigateHistory(1);
+            // If we're at the last entry in history mode, exit history mode
+            if (currentHistoryIndex === moveHistory.length - 1) {
+                currentHistoryIndex = -1;
+                replayToPosition(moveHistory.length);
+                isGameOver = checkForGameOverState();
+                updateHistoryHighlight();
+            } else {
+                navigateHistory(1);
+            }
         }
     }
 
