@@ -4,6 +4,10 @@
     --color-amber: #E8AB6F;
     --color-lightwood: #FFCE9E;
     --color-rust: #D18B47;
+    --board-label-letter: #1f3d8f;
+    --board-label-number: #8f2a1f;
+    --board-label-letter-blackturn: #6b9dff;
+    --board-label-number-blackturn: #ff6b5e;
     
     /* Light mode colors */
     --bg-primary: #cfe8ff;
@@ -35,6 +39,11 @@
     --bg-secondary: #2d2d2d;
     --text-primary: #ffffff;
     --text-secondary: #cccccc;
+    /* Coordinate labels: boost contrast against dark UI chrome */
+    --board-label-letter: #b8ccff;
+    --board-label-number: #ffb3aa;
+    --board-label-letter-blackturn: #d6e4ff;
+    --board-label-number-blackturn: #ffd0ca;
     --border-color: rgba(255, 255, 255, 0.1);
     --shadow-color: rgba(0, 0, 0, 0.3);
     --button-bg: #4a5f8a;
@@ -439,21 +448,21 @@ body {
 }
 
 .board-label-letter {
-    color: #1f3d8f;
+    color: var(--board-label-letter);
     transition: color 220ms ease;
 }
 
 .board-label-number {
-    color: #8f2a1f;
+    color: var(--board-label-number);
     transition: color 220ms ease;
 }
 
 #board-container.board-turn-black .board-label-letter {
-    color: #6b9dff;
+    color: var(--board-label-letter-blackturn);
 }
 
 #board-container.board-turn-black .board-label-number {
-    color: #ff6b5e;
+    color: var(--board-label-number-blackturn);
 }
 
 #board-container.board-flipped #board {

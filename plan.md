@@ -1,4 +1,4 @@
-# Hexagonal Chess Web App - Development Plan
+ Hexagonal Chess Web App - Development Plan
 
 ## Project Overview
 

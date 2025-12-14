@@ -54,10 +54,58 @@ let playerLabelsTimeoutId = null;
 		    let onlineSession = null;
 		    let activeLobbyRef = null;
 		    let activeLobbyValueListener = null;
-		    let activeMovesRef = null;
-		    let activeMovesChildAddedListener = null;
+		    let activeLastMoveRef = null;
+		    let activeLastMoveValueListener = null;
 		    const pendingOnlineMovesByPly = new Map();
+		    let isAttemptingOnlineResync = false;
 		    let isApplyingOnlineMove = false;
+
+    // History replay is animation + setTimeout heavy; rapid scrubbing can otherwise
+    // leave stale timeouts firing after a newer replay starts (causing jank/ghost highlights).
+    let replaySequence = 0;
+    const pendingReplayTimeoutIds = [];
+    const pendingReplayRafIds = [];
+
+    function cancelPendingReplayWork() {
+        while (pendingReplayTimeoutIds.length) {
+            clearTimeout(pendingReplayTimeoutIds.pop());
+        }
+        while (pendingReplayRafIds.length) {
+            cancelAnimationFrame(pendingReplayRafIds.pop());
+        }
+    }
+
+    function beginReplaySequence() {
+        cancelPendingReplayWork();
+        if (pendingFlipTimeoutId !== null) {
+            clearTimeout(pendingFlipTimeoutId);
+            pendingFlipTimeoutId = null;
+        }
+        replaySequence += 1;
+        return replaySequence;
+    }
+
+    function safeReplayTimeout(sequenceToken, fn, delayMs) {
+        const id = window.setTimeout(() => {
+            if (sequenceToken !== replaySequence) {
+                return;
+            }
+            fn();
+        }, delayMs);
+        pendingReplayTimeoutIds.push(id);
+        return id;
+    }
+
+    function safeReplayRaf(sequenceToken, fn) {
+        const id = window.requestAnimationFrame(() => {
+            if (sequenceToken !== replaySequence) {
+                return;
+            }
+            fn();
+        });
+        pendingReplayRafIds.push(id);
+        return id;
+    }
 
     const PIECE_SPRITES = {
         white: {
@@ -283,6 +331,9 @@ let playerLabelsTimeoutId = null;
         setDarkMode(newDarkMode);
         localStorage.setItem('darkMode', newDarkMode.toString());
     }
+
+    // Initialize theme after UI (incl. button) exists.
+    initializeDarkMode();
 
     initEmptyBoard();
 
@@ -1323,8 +1374,7 @@ let playerLabelsTimeoutId = null;
 		        }
 		        const nextTurn = piece.color === 'white' ? 'black' : 'white';
 		        const lobbyId = onlineSession.lobbyId;
-		        const lobbyRef = firebaseDatabaseInstance.ref(`lobbies/${lobbyId}`);
-		        const moveRef = lobbyRef.child('moves').child(String(ply));
+		        const moveRef = firebaseDatabaseInstance.ref(`lobbyMoves/${lobbyId}/${ply}`);
 		        const record = {
 		            v: 1,
 		            ply,
@@ -1357,10 +1407,12 @@ let playerLabelsTimeoutId = null;
 		                if (!result?.committed) {
 		                    return;
 		                }
-		                return lobbyRef.child('game').update({
-		                    currentTurn: nextTurn,
-		                    updatedAt: firebase.database.ServerValue.TIMESTAMP
-		                });
+		                const updates = {};
+		                updates[`lobbies/${lobbyId}/currentTurn`] = nextTurn;
+		                updates[`lobbies/${lobbyId}/lastPly`] = ply;
+		                updates[`lobbies/${lobbyId}/lastMove`] = record;
+		                updates[`lobbies/${lobbyId}/updatedAt`] = firebase.database.ServerValue.TIMESTAMP;
+		                return firebaseDatabaseInstance.ref().update(updates);
 		            })
 		            .catch(error => {
 		                console.warn('Failed to sync move:', error);
@@ -2179,7 +2231,8 @@ function startNewGame(mode) {
         if (moveIndex < 0 || moveIndex >= moveHistory.length) return;
         
         currentHistoryIndex = moveIndex;
-        replayToPosition(moveIndex + 1, true);
+        // No animations in history mode (prevents jank when scrubbing quickly).
+        replayToPosition(moveIndex + 1, false);
         isGameOver = false;
         updateHistoryHighlight();
     }
@@ -2213,7 +2266,8 @@ function startNewGame(mode) {
                 // Enter history mode by going to the previous move
                 if (moveHistory.length > 0) {
                     currentHistoryIndex = moveHistory.length - 1;
-                    replayToPosition(currentHistoryIndex + 1, true, true);
+                    // No animations in history mode.
+                    replayToPosition(currentHistoryIndex + 1, false);
                     isGameOver = false;
                     updateHistoryHighlight();
                 }
@@ -2237,8 +2291,6 @@ function startNewGame(mode) {
 
     function navigateHistory(direction) {
         if (moveHistory.length === 0) return;
-
-        const oldIndex = currentHistoryIndex;
         const newIndex = currentHistoryIndex + direction;
         
         // Clamp to valid range: -1 (latest) to moveHistory.length - 1 (first move)
@@ -2250,17 +2302,16 @@ function startNewGame(mode) {
         
         currentHistoryIndex = clampedIndex;
         
-        // Check if we're going backwards (left arrow)
-        const goingBackwards = direction < 0;
-        
         if (currentHistoryIndex === -1) {
             // Show the latest position - replay all moves
-            replayToPosition(moveHistory.length, true, goingBackwards);
+            // No animations in history mode.
+            replayToPosition(moveHistory.length, false);
             // Restore actual game state
             isGameOver = checkForGameOverState();
         } else {
             // Show position up to currentHistoryIndex
-            replayToPosition(currentHistoryIndex + 1, true, goingBackwards);
+            // No animations in history mode.
+            replayToPosition(currentHistoryIndex + 1, false);
             // When viewing history, we're not in a game over state
             isGameOver = false;
         }
@@ -2284,6 +2335,8 @@ function startNewGame(mode) {
     }
 
     function replayToPosition(moveCount, animateLastMove = false, reverseAnimation = false) {
+        const replayToken = beginReplaySequence();
+
         // If going backwards and animating, we need to show the piece at its destination first,
         // then animate it back to its source
         if (animateLastMove && reverseAnimation && moveCount > 0) {
@@ -2354,6 +2407,10 @@ function startNewGame(mode) {
                 // Now animate the last move in reverse
                 const pieceId = moveToAnimate.piece.id;
                 const piece = piecesById.get(pieceId);
+
+                // Show immediate feedback for the move being undone (prevents the
+                // "green highlight lag" feeling while the reverse animation plays).
+                highlightLastMove(moveToAnimate.fromQ, moveToAnimate.fromR, moveToAnimate.toQ, moveToAnimate.toR);
                 
                 if (piece && piece.element) {
                     // Temporarily position piece at destination (toQ, toR)
@@ -2366,22 +2423,22 @@ function startNewGame(mode) {
                         piece.element.style.transition = '';
                         
                         // Now animate back to source (fromQ, fromR)
-                        setTimeout(() => {
-                            const sourcePos = tilePositions.get(coordKey(moveToAnimate.fromQ, moveToAnimate.fromR));
-                            if (sourcePos) {
-                                piece.element.style.left = `${sourcePos.centerX - pieceSize / 2}px`;
-                                piece.element.style.top = `${sourcePos.centerY - pieceSize / 2}px`;
-                            }
-                        }, 10);
+                        // Use rAF so rapid history scrubbing won't leave delayed timeouts behind.
+                        safeReplayRaf(replayToken, () => {
+                            safeReplayRaf(replayToken, () => {
+                                const sourcePos = tilePositions.get(coordKey(moveToAnimate.fromQ, moveToAnimate.fromR));
+                                if (sourcePos) {
+                                    piece.element.style.left = `${sourcePos.centerX - pieceSize / 2}px`;
+                                    piece.element.style.top = `${sourcePos.centerY - pieceSize / 2}px`;
+                                }
+                            });
+                        });
                     }
                 }
                 
                 // Now set up the board at moveCount - 1 (the previous position)
-                setTimeout(() => {
-    // Initialize dark mode
-    initializeDarkMode();
-
-    initEmptyBoard();
+                safeReplayTimeout(replayToken, () => {
+                    initEmptyBoard();
                     const freshPieces2 = createInitialPieces();
                     placePieces(freshPieces2);
                     currentTurn = 'white';
@@ -2632,12 +2689,13 @@ function startNewGame(mode) {
 	        activeLobbyRef = null;
 	        activeLobbyValueListener = null;
 
-	        if (activeMovesRef && activeMovesChildAddedListener) {
-	            activeMovesRef.off('child_added', activeMovesChildAddedListener);
+	        if (activeLastMoveRef && activeLastMoveValueListener) {
+	            activeLastMoveRef.off('value', activeLastMoveValueListener);
 	        }
-	        activeMovesRef = null;
-	        activeMovesChildAddedListener = null;
+	        activeLastMoveRef = null;
+	        activeLastMoveValueListener = null;
 	        pendingOnlineMovesByPly.clear();
+	        isAttemptingOnlineResync = false;
 	    }
 
   function updateOnlinePlayerLabels() {
@@ -2694,6 +2752,13 @@ function startNewGame(mode) {
         if (!turnEl) {
             return;
         }
+
+        // If no game is active (e.g. initial load empty board), don't show a turn indicator.
+        if (piecesById.size === 0) {
+            turnEl.hidden = true;
+            turnEl.textContent = '';
+            return;
+        }
         
         const currentTurnText = currentTurn === 'white' ? 'White' : 'Black';
         const currentTurnName = currentTurn === 'white'
@@ -2721,10 +2786,13 @@ function startNewGame(mode) {
 function handlePageUnload() {
         // Auto-kick everyone and delete lobby entry when player closes tab
         if (activeLobbyId && ensureFirebaseDatabase()) {
-            const lobbyRef = firebaseDatabaseInstance.ref(`lobbies/${activeLobbyId}`);
-            
-            // Try to delete the lobby immediately using Firebase SDK
-            lobbyRef.remove().catch(error => {
+            const updates = {};
+            updates[`lobbies/${activeLobbyId}`] = null;
+            updates[`lobbyGames/${activeLobbyId}`] = null;
+            updates[`lobbyMoves/${activeLobbyId}`] = null;
+
+            // Try to delete immediately using Firebase SDK
+            firebaseDatabaseInstance.ref().update(updates).catch(error => {
                 console.warn('Failed to delete lobby on page unload:', error);
             });
             
@@ -2963,22 +3031,64 @@ function handlePageUnload() {
 		        if (!ensureFirebaseDatabase()) {
 		            return;
 		        }
-		        if (activeMovesRef && activeLobbyId === lobbyId) {
+		        if (activeLastMoveRef && activeLobbyId === lobbyId) {
 		            return;
 		        }
-		        if (activeMovesRef && activeMovesChildAddedListener) {
-		            activeMovesRef.off('child_added', activeMovesChildAddedListener);
+		        if (activeLastMoveRef && activeLastMoveValueListener) {
+		            activeLastMoveRef.off('value', activeLastMoveValueListener);
 		        }
-		        activeMovesRef = firebaseDatabaseInstance.ref(`lobbies/${lobbyId}/moves`);
-		        activeMovesChildAddedListener = snapshot => {
+		        activeLastMoveRef = firebaseDatabaseInstance.ref(`lobbies/${lobbyId}/lastMove`);
+		        activeLastMoveValueListener = snapshot => {
 		            const record = snapshot.val();
 		            if (!record || typeof record.ply !== 'number') {
 		                return;
 		            }
 		            pendingOnlineMovesByPly.set(record.ply, record);
 		            tryApplyPendingOnlineMoves();
+		            if (record.ply > moveHistory.length) {
+		                attemptOnlineResync(lobbyId, record.ply);
+		            }
 		        };
-		        activeMovesRef.on('child_added', activeMovesChildAddedListener);
+		        activeLastMoveRef.on('value', activeLastMoveValueListener);
+		    }
+
+		    async function attemptOnlineResync(lobbyId, targetPly) {
+		        if (!ensureFirebaseDatabase()) {
+		            return;
+		        }
+		        if (!Number.isFinite(targetPly)) {
+		            return;
+		        }
+		        if (isAttemptingOnlineResync) {
+		            return;
+		        }
+		        isAttemptingOnlineResync = true;
+		        try {
+		            const maxFetches = 6;
+		            let fetches = 0;
+		            while (moveHistory.length <= targetPly && fetches < maxFetches) {
+		                const neededPly = moveHistory.length;
+		                if (pendingOnlineMovesByPly.has(neededPly)) {
+		                    tryApplyPendingOnlineMoves();
+		                    continue;
+		                }
+		                const snapshot = await firebaseDatabaseInstance.ref(`lobbyMoves/${lobbyId}/${neededPly}`).once('value');
+		                const record = snapshot?.val?.() ?? null;
+		                if (!record || typeof record.ply !== 'number') {
+		                    break;
+		                }
+		                pendingOnlineMovesByPly.set(record.ply, record);
+		                tryApplyPendingOnlineMoves();
+		                fetches += 1;
+		            }
+		            if (moveHistory.length <= targetPly) {
+		                showNewGameNotice('Online sync missed moves. Refresh to resync.');
+		            } else {
+		                hideNewGameNotice();
+		            }
+		        } finally {
+		            isAttemptingOnlineResync = false;
+		        }
 		    }
 
 		    function tryApplyPendingOnlineMoves() {
@@ -3137,7 +3247,7 @@ function handlePageUnload() {
         return id;
     }
 
-    function serializeBoardState() {
+    function serializeBoardState(turnOverride) {
         const pieces = [];
         piecesById.forEach(piece => {
             pieces.push({
@@ -3152,7 +3262,7 @@ function handlePageUnload() {
         });
         return {
             boardRadius: BOARD_RADIUS,
-            currentTurn,
+            currentTurn: typeof turnOverride === 'string' ? turnOverride : currentTurn,
             pieces,
             moveHistory: []
         };
@@ -3173,7 +3283,6 @@ function handlePageUnload() {
 
 	        const lobbyId = generateLobbyId();
 	        activeLobbyId = lobbyId;
-	        const lobbyRef = firebaseDatabaseInstance.ref(`lobbies/${lobbyId}`);
 	        const lobbyData = {
 	            createdAt: firebase.database.ServerValue.TIMESTAMP,
 	            status: 'waiting',
@@ -3182,8 +3291,15 @@ function handlePageUnload() {
 	                displayName: authenticatedUser.displayName || 'Host',
 	                email: authenticatedUser.email || null
 	            },
-	            game: serializeBoardState(),
-	            moves: {}
+	            currentTurn: 'white',
+	            lastPly: -1,
+	            lastMove: null,
+	            updatedAt: firebase.database.ServerValue.TIMESTAMP
+	        };
+	        const gameData = {
+	            ...serializeBoardState('white'),
+	            lastPly: -1,
+	            updatedAt: firebase.database.ServerValue.TIMESTAMP
 	        };
 
 	        showOnlineGameModal();
@@ -3194,8 +3310,13 @@ function handlePageUnload() {
 	            canCopy: false
 	        });
 
-	        lobbyRef
-	            .set(lobbyData)
+	        const updates = {};
+	        updates[`lobbies/${lobbyId}`] = lobbyData;
+	        updates[`lobbyGames/${lobbyId}`] = gameData;
+
+	        firebaseDatabaseInstance
+	            .ref()
+	            .update(updates)
 	            .then(() => {
 	                setOnlineSession({
 	                    lobbyId,
@@ -3362,9 +3483,16 @@ function handlePageUnload() {
 				                });
 				                startLobbyListener(lobbyId, { isHost: false });
 
-				                if (lobby.game) {
-				                    applyBoardState(lobby.game);
-				                }
+				                firebaseDatabaseInstance
+				                    .ref(`lobbyGames/${lobbyId}`)
+				                    .once('value')
+				                    .then(snapshot => snapshot?.val?.() ?? null)
+				                    .then(game => {
+				                        if (game) {
+				                            applyBoardState(game);
+				                        }
+				                    })
+				                    .catch(() => {});
 
 				                const derived = deriveRolesForUser(lobby, authenticatedUser, lobbyId);
 				                const myColor = derived?.myColor || null;
@@ -3420,8 +3548,12 @@ function handlePageUnload() {
 	        }
 
 	        firebaseDatabaseInstance
-	            .ref(`lobbies/${lobbyIdToDelete}`)
-	            .remove()
+	            .ref()
+	            .update({
+	                [`lobbies/${lobbyIdToDelete}`]: null,
+	                [`lobbyGames/${lobbyIdToDelete}`]: null,
+	                [`lobbyMoves/${lobbyIdToDelete}`]: null
+	            })
 	            .catch(error => {
 	                console.warn('Failed to delete lobby:', error);
 	            })
