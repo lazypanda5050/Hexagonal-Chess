@@ -63,9 +63,9 @@ let playerLabelsTimeoutId = null;
     // Chess clock state
     let chessClockEnabled = false;
     let chessClockSettings = {
-        minutes: 10,
+        minutes: 3,
         seconds: 0,
-        increment: 0
+        increment: 2
     };
     let chessClockState = {
         white: { time: 0, active: false }, // time in milliseconds
@@ -387,6 +387,7 @@ let playerLabelsTimeoutId = null;
             tileElement.dataset.q = tile.q;
             tileElement.dataset.r = tile.r;
             tileElement.addEventListener('click', () => {
+                console.log('Tile clicked:', tile.q, tile.r, 'clock enabled:', chessClockEnabled);
                 handleTileClick(tile.q, tile.r);
             });
             tilePositions.set(coordKey(tile.q, tile.r), {
@@ -417,6 +418,7 @@ let playerLabelsTimeoutId = null;
             piece.element = pieceElement;
             pieceElement.dataset.pieceId = piece.id;
             pieceElement.addEventListener('click', (e) => {
+                console.log('Piece clicked:', piece.type, piece.color, 'clock enabled:', chessClockEnabled);
                 e.stopPropagation();
                 handleTileClick(piece.q, piece.r);
             });
@@ -463,6 +465,7 @@ let playerLabelsTimeoutId = null;
     }
 
     function handleTileClick(q, r) {
+        console.log('Tile clicked:', q, r, 'clock enabled:', chessClockEnabled);
         if (isGameOver) {
             return;
         }
@@ -1236,6 +1239,10 @@ let playerLabelsTimeoutId = null;
     }
 
     function completeMove(piece, fromQ, fromR, move, isCapture, promotionType = null, captureId = null) {
+	        // Prevent moves after game over (including time expiration)
+	        if (isGameOver) {
+	            return;
+	        }
 	        if (!isApplyingOnlineMove) {
 	            if (piece.color !== currentTurn) {
 	                return;
@@ -1327,6 +1334,13 @@ let playerLabelsTimeoutId = null;
 
     function handlePromotionChoice(promotionType) {
         if (!pendingPromotion) return;
+        
+        // Prevent promotion after game over (including time expiration)
+        if (isGameOver) {
+            hidePromotionModal();
+            pendingPromotion = null;
+            return;
+        }
         
         const { piece, fromQ, fromR, toQ, toR, isCapture, captureId, castle } = pendingPromotion;
 
@@ -2070,7 +2084,8 @@ let playerLabelsTimeoutId = null;
         minutesInput.type = 'number';
         minutesInput.id = 'clock-minutes';
         minutesInput.className = 'setting-input';
-        minutesInput.min = '1';
+        minutesInput.min = '0';
+        minutesInput.placeholder = 'Minutes (optional)';
         minutesInput.max = '180';
         minutesInput.value = chessClockSettings.minutes;
 
@@ -2149,7 +2164,7 @@ let playerLabelsTimeoutId = null;
         const modal = document.getElementById('clock-settings-modal');
         if (modal) {
             // Update input values with current settings
-            document.getElementById('clock-minutes').value = chessClockSettings.minutes;
+            document.getElementById('clock-minutes').value = chessClockSettings.minutes || '';
             document.getElementById('clock-seconds').value = chessClockSettings.seconds;
             document.getElementById('clock-increment').value = chessClockSettings.increment;
             modal.style.display = 'flex';
@@ -2164,9 +2179,15 @@ let playerLabelsTimeoutId = null;
     }
 
     function saveClockSettings() {
-        const minutes = parseInt(document.getElementById('clock-minutes').value) || 10;
+        const minutesInput = document.getElementById('clock-minutes').value;
+        const minutes = minutesInput === '' ? 0 : parseInt(minutesInput);
         const seconds = parseInt(document.getElementById('clock-seconds').value) || 0;
         const increment = parseInt(document.getElementById('clock-increment').value) || 0;
+        
+        // Validate minutes is not NaN and within bounds
+        if (isNaN(minutes)) {
+            minutes = 10; // fallback only if NaN, not if 0
+        }
 
 chessClockSettings = { minutes, seconds, increment };
         
@@ -2175,11 +2196,13 @@ chessClockSettings = { minutes, seconds, increment };
         chessClockState.black.active = false;
 
         initializeChessClockTimes();
+        hideClockSettingsDialog();
     }
 
     function handleTimeExpiration(color) {
         stopChessClock();
         const winner = color === 'white' ? 'Black' : 'White';
+        isGameOver = true;
         showGameOverOverlay('Time Out!', `${winner} wins on time!`);
     }
 
@@ -2260,17 +2283,20 @@ chessClockSettings = { minutes, seconds, increment };
 
         const now = Date.now();
         const deltaTime = 100; // Update interval
+        const totalTime = (chessClockSettings.minutes * 60 + chessClockSettings.seconds) * 1000;
 
         if (chessClockState.white.active) {
             chessClockState.white.time = Math.max(0, chessClockState.white.time - deltaTime);
-            if (chessClockState.white.time === 0) {
+            // Only trigger time expiration if initial time was > 0
+            if (chessClockState.white.time === 0 && totalTime > 0) {
                 handleTimeExpiration('white');
             }
         }
 
         if (chessClockState.black.active) {
             chessClockState.black.time = Math.max(0, chessClockState.black.time - deltaTime);
-            if (chessClockState.black.time === 0) {
+            // Only trigger time expiration if initial time was > 0
+            if (chessClockState.black.time === 0 && totalTime > 0) {
                 handleTimeExpiration('black');
             }
         }
@@ -2286,6 +2312,9 @@ chessClockSettings = { minutes, seconds, increment };
     }
 
     function updateChessClockDisplay() {
+        const totalTime = (chessClockSettings.minutes * 60 + chessClockSettings.seconds) * 1000;
+        const isZeroTimeGame = totalTime === 0;
+        
         if (chessClockWhiteElement) {
             const whiteTime = Math.ceil(chessClockState.white.time / 1000);
             const whiteMinutes = Math.floor(whiteTime / 60);
@@ -2299,7 +2328,8 @@ chessClockSettings = { minutes, seconds, increment };
                 chessClockWhiteElement.classList.remove('active');
             }
             
-            if (whiteTime < 30) {
+            // Only show warning if time is running low and it's not a zero-time game
+            if (!isZeroTimeGame && whiteTime < 30) {
                 chessClockWhiteElement.classList.add('clock-warning');
             } else {
                 chessClockWhiteElement.classList.remove('clock-warning');
@@ -2319,7 +2349,8 @@ chessClockSettings = { minutes, seconds, increment };
                 chessClockBlackElement.classList.remove('active');
             }
             
-            if (blackTime < 30) {
+            // Only show warning if time is running low and it's not a zero-time game
+            if (!isZeroTimeGame && blackTime < 30) {
                 chessClockBlackElement.classList.add('clock-warning');
             } else {
                 chessClockBlackElement.classList.remove('clock-warning');
@@ -2334,6 +2365,13 @@ chessClockSettings = { minutes, seconds, increment };
         chessClockState.black.time = totalTime;
         chessClockState.white.active = false;
         chessClockState.black.active = false;
+        
+        // Ensure clock container visibility matches enabled state
+        const clockContainer = document.getElementById('game-clock-container');
+        if (clockContainer) {
+            clockContainer.hidden = !chessClockEnabled;
+        }
+        
         updateChessClockDisplay();
     }
 
