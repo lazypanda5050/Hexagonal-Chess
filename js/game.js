@@ -2773,16 +2773,16 @@ function startNewGame(mode) {
             }
         } else if (event.key === 'ArrowRight') {
             // Do not enter history mode from live.
+            event.preventDefault();
             if (currentHistoryIndex === -1) {
                 return;
             }
-            event.preventDefault();
             navigateHistory(1);
         } else if (event.key === 'ArrowUp') {
+            event.preventDefault();
             if (moveHistory.length === 0) {
                 return;
             }
-            event.preventDefault();
 
             // Jump to start position (ply 0) and enter history mode if needed.
             currentHistoryIndex = 0;
