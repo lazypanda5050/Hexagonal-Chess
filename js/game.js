@@ -60,6 +60,21 @@ let playerLabelsTimeoutId = null;
 		    let isAttemptingOnlineResync = false;
 		    let isApplyingOnlineMove = false;
 
+    // Chess clock state
+    let chessClockEnabled = false;
+    let chessClockSettings = {
+        minutes: 10,
+        seconds: 0,
+        increment: 0
+    };
+    let chessClockState = {
+        white: { time: 0, active: false }, // time in milliseconds
+        black: { time: 0, active: false }
+    };
+    let chessClockIntervalId = null;
+    let chessClockWhiteElement = null;
+    let chessClockBlackElement = null;
+
     // History replay is animation + setTimeout heavy; rapid scrubbing can otherwise
     // leave stale timeouts firing after a newer replay starts (causing jank/ghost highlights).
     let replaySequence = 0;
@@ -241,21 +256,25 @@ let playerLabelsTimeoutId = null;
     const layout = document.createElement('div');
     layout.id = 'game-layout';
     const controls = buildGameControls();
+    const gameClock = buildGameClock();
     const historySidebar = buildHistorySidebar();
     const sidePanel = document.createElement('div');
     sidePanel.id = 'side-panel';
     sidePanel.appendChild(controls);
     // Turn indicator should appear between the control buttons and the move list.
     sidePanel.appendChild(turnIndicator);
+    sidePanel.appendChild(gameClock);
     sidePanel.appendChild(historySidebar);
     const promotionModal = buildPromotionModal();
     const onlineGameModal = buildOnlineGameModal();
+    const clockSettingsModal = buildClockSettingsModal();
     layout.appendChild(boardContainer);
     layout.appendChild(sidePanel);
 
     appRoot.appendChild(layout);
     appRoot.appendChild(promotionModal);
     appRoot.appendChild(onlineGameModal);
+    appRoot.appendChild(clockSettingsModal);
 
 // Add keyboard event listener for history navigation (currently disabled).
     if (HISTORY_MODE_ENABLED) {
@@ -1279,6 +1298,13 @@ let playerLabelsTimeoutId = null;
 	        
 	        highlightLastMove(fromQ, fromR, piece.q, piece.r);
 	        clearSelection();
+	        
+	        // Start chess clock on first move
+	        if (chessClockEnabled && moveHistory.length === 1) {
+	            chessClockState.white.active = true;
+	            startChessClock();
+	        }
+	        
 	        endTurn(piece);
     }
 
@@ -1679,6 +1705,59 @@ let playerLabelsTimeoutId = null;
         return placements;
     }
 
+    function buildGameClock() {
+        const clockContainer = document.createElement('div');
+        clockContainer.id = 'game-clock-container';
+        clockContainer.className = 'game-clock-container';
+        clockContainer.hidden = true;
+
+        const whiteClockContainer = document.createElement('div');
+        whiteClockContainer.className = 'player-clock-container';
+
+        const whiteLabel = document.createElement('div');
+        whiteLabel.className = 'player-clock-label';
+        whiteLabel.textContent = 'White';
+
+        const whiteClock = document.createElement('div');
+        whiteClock.id = 'chess-clock-white';
+        whiteClock.className = 'player-clock player-clock-white';
+        whiteClock.textContent = '10:00';
+
+        whiteClockContainer.appendChild(whiteLabel);
+        whiteClockContainer.appendChild(whiteClock);
+
+        const blackClockContainer = document.createElement('div');
+        blackClockContainer.className = 'player-clock-container';
+
+        const blackLabel = document.createElement('div');
+        blackLabel.className = 'player-clock-label';
+        blackLabel.textContent = 'Black';
+
+        const blackClock = document.createElement('div');
+        blackClock.id = 'chess-clock-black';
+        blackClock.className = 'player-clock player-clock-black';
+        blackClock.textContent = '10:00';
+
+        blackClockContainer.appendChild(blackLabel);
+        blackClockContainer.appendChild(blackClock);
+
+        const settingsButton = document.createElement('button');
+        settingsButton.id = 'clock-settings-button';
+        settingsButton.className = 'clock-settings-button';
+        settingsButton.textContent = '⚙️';
+        settingsButton.title = 'Clock Settings';
+        settingsButton.addEventListener('click', showClockSettingsDialog);
+
+        clockContainer.appendChild(whiteClockContainer);
+        clockContainer.appendChild(settingsButton);
+        clockContainer.appendChild(blackClockContainer);
+
+        chessClockWhiteElement = whiteClock;
+        chessClockBlackElement = blackClock;
+
+        return clockContainer;
+    }
+
     function buildGameControls() {
         const controls = document.createElement('div');
         controls.id = 'game-controls';
@@ -1732,12 +1811,32 @@ let playerLabelsTimeoutId = null;
 	        topRow.appendChild(select);
 	        topRow.appendChild(darkModeButton);
 
+        const clockRow = document.createElement('div');
+        clockRow.className = 'game-controls-row';
+
+        const clockCheckbox = document.createElement('input');
+        clockCheckbox.type = 'checkbox';
+        clockCheckbox.id = 'game-clock-toggle';
+        clockCheckbox.name = 'game-clock-toggle';
+        clockCheckbox.className = 'control-checkbox';
+
+        const clockLabel = document.createElement('label');
+        clockLabel.htmlFor = 'game-clock-toggle';
+        clockLabel.className = 'control-label';
+        clockLabel.textContent = 'Enable Clock';
+
+        clockCheckbox.addEventListener('change', handleClockToggle);
+
+        clockRow.appendChild(clockCheckbox);
+        clockRow.appendChild(clockLabel);
+
         const notice = document.createElement('div');
         notice.id = 'new-game-notice';
         notice.className = 'control-notice';
         notice.hidden = true;
 
         controls.appendChild(topRow);
+        controls.appendChild(clockRow);
         controls.appendChild(notice);
         controls.appendChild(flipButton);
         return controls;
@@ -1944,6 +2043,146 @@ let playerLabelsTimeoutId = null;
 	        return modal;
 	    }
 
+    function buildClockSettingsModal() {
+        const modal = document.createElement('div');
+        modal.id = 'clock-settings-modal';
+        modal.className = 'clock-settings-modal';
+        modal.style.display = 'none';
+
+        const overlay = document.createElement('div');
+        overlay.className = 'clock-settings-overlay';
+
+        const content = document.createElement('div');
+        content.className = 'clock-settings-content';
+
+        const title = document.createElement('h3');
+        title.className = 'clock-settings-title';
+        title.textContent = 'Clock Settings';
+
+        const minutesContainer = document.createElement('div');
+        minutesContainer.className = 'setting-row';
+
+        const minutesLabel = document.createElement('label');
+        minutesLabel.className = 'setting-label';
+        minutesLabel.textContent = 'Minutes:';
+
+        const minutesInput = document.createElement('input');
+        minutesInput.type = 'number';
+        minutesInput.id = 'clock-minutes';
+        minutesInput.className = 'setting-input';
+        minutesInput.min = '1';
+        minutesInput.max = '180';
+        minutesInput.value = chessClockSettings.minutes;
+
+        minutesContainer.appendChild(minutesLabel);
+        minutesContainer.appendChild(minutesInput);
+
+        const secondsContainer = document.createElement('div');
+        secondsContainer.className = 'setting-row';
+
+        const secondsLabel = document.createElement('label');
+        secondsLabel.className = 'setting-label';
+        secondsLabel.textContent = 'Seconds:';
+
+        const secondsInput = document.createElement('input');
+        secondsInput.type = 'number';
+        secondsInput.id = 'clock-seconds';
+        secondsInput.className = 'setting-input';
+        secondsInput.min = '0';
+        secondsInput.max = '59';
+        secondsInput.value = chessClockSettings.seconds;
+
+        secondsContainer.appendChild(secondsLabel);
+        secondsContainer.appendChild(secondsInput);
+
+        const incrementContainer = document.createElement('div');
+        incrementContainer.className = 'setting-row';
+
+        const incrementLabel = document.createElement('label');
+        incrementLabel.className = 'setting-label';
+        incrementLabel.textContent = 'Increment (seconds):';
+
+        const incrementInput = document.createElement('input');
+        incrementInput.type = 'number';
+        incrementInput.id = 'clock-increment';
+        incrementInput.className = 'setting-input';
+        incrementInput.min = '0';
+        incrementInput.max = '60';
+        incrementInput.value = chessClockSettings.increment;
+
+        incrementContainer.appendChild(incrementLabel);
+        incrementContainer.appendChild(incrementInput);
+
+        const buttonRow = document.createElement('div');
+        buttonRow.className = 'clock-settings-buttons';
+
+        const saveButton = document.createElement('button');
+        saveButton.type = 'button';
+        saveButton.className = 'clock-settings-save';
+        saveButton.textContent = 'Save';
+        saveButton.addEventListener('click', saveClockSettings);
+
+        const cancelButton = document.createElement('button');
+        cancelButton.type = 'button';
+        cancelButton.className = 'clock-settings-cancel';
+        cancelButton.textContent = 'Cancel';
+        cancelButton.addEventListener('click', hideClockSettingsDialog);
+
+        buttonRow.appendChild(saveButton);
+        buttonRow.appendChild(cancelButton);
+
+        content.appendChild(title);
+        content.appendChild(minutesContainer);
+        content.appendChild(secondsContainer);
+        content.appendChild(incrementContainer);
+        content.appendChild(buttonRow);
+
+        modal.appendChild(overlay);
+        modal.appendChild(content);
+
+        overlay.addEventListener('click', hideClockSettingsDialog);
+
+        return modal;
+    }
+
+    function showClockSettingsDialog() {
+        const modal = document.getElementById('clock-settings-modal');
+        if (modal) {
+            // Update input values with current settings
+            document.getElementById('clock-minutes').value = chessClockSettings.minutes;
+            document.getElementById('clock-seconds').value = chessClockSettings.seconds;
+            document.getElementById('clock-increment').value = chessClockSettings.increment;
+            modal.style.display = 'flex';
+        }
+    }
+
+    function hideClockSettingsDialog() {
+        const modal = document.getElementById('clock-settings-modal');
+        if (modal) {
+            modal.style.display = 'none';
+        }
+    }
+
+    function saveClockSettings() {
+        const minutes = parseInt(document.getElementById('clock-minutes').value) || 10;
+        const seconds = parseInt(document.getElementById('clock-seconds').value) || 0;
+        const increment = parseInt(document.getElementById('clock-increment').value) || 0;
+
+chessClockSettings = { minutes, seconds, increment };
+        
+        // Reset clocks with new settings
+        chessClockState.white.active = false;
+        chessClockState.black.active = false;
+
+        initializeChessClockTimes();
+    }
+
+    function handleTimeExpiration(color) {
+        stopChessClock();
+        const winner = color === 'white' ? 'Black' : 'White';
+        showGameOverOverlay('Time Out!', `${winner} wins on time!`);
+    }
+
     function showGameOverOverlay(titleOrMessage, subtitleMessage = '') {
         const overlay = document.getElementById('game-over-overlay');
         if (!overlay) {
@@ -1951,6 +2190,9 @@ let playerLabelsTimeoutId = null;
         }
         const title = overlay.querySelector('.game-over-title');
         const subtitle = overlay.querySelector('.game-over-subtitle');
+
+        // Stop chess clock when game is over
+        stopChessClock();
 
         // Backwards compatible: if called with just one string, treat it as the subtitle.
         if (subtitleMessage === '') {
@@ -1981,6 +2223,140 @@ let playerLabelsTimeoutId = null;
         flipBoard();
     }
 
+    function handleClockToggle(event) {
+        chessClockEnabled = event.target.checked;
+        const clockContainer = document.getElementById('game-clock-container');
+        if (clockContainer) {
+            clockContainer.hidden = !chessClockEnabled;
+        }
+        if (chessClockEnabled) {
+            initializeChessClockTimes();
+        } else {
+            stopChessClock();
+        }
+    }
+
+    function startChessClock() {
+        if (!chessClockEnabled || chessClockIntervalId) {
+            return;
+        }
+        chessClockIntervalId = setInterval(updateChessClock, 100);
+    }
+
+    function stopChessClock() {
+        if (chessClockIntervalId) {
+            clearInterval(chessClockIntervalId);
+            chessClockIntervalId = null;
+        }
+        chessClockState.white.active = false;
+        chessClockState.black.active = false;
+        updateChessClockDisplay();
+    }
+
+    function updateChessClock() {
+        if (!chessClockEnabled) {
+            return;
+        }
+
+        const now = Date.now();
+        const deltaTime = 100; // Update interval
+
+        if (chessClockState.white.active) {
+            chessClockState.white.time = Math.max(0, chessClockState.white.time - deltaTime);
+            if (chessClockState.white.time === 0) {
+                handleTimeExpiration('white');
+            }
+        }
+
+        if (chessClockState.black.active) {
+            chessClockState.black.time = Math.max(0, chessClockState.black.time - deltaTime);
+            if (chessClockState.black.time === 0) {
+                handleTimeExpiration('black');
+            }
+        }
+
+        updateChessClockDisplay();
+    }
+
+    function initializeChessClockTimes() {
+        const totalTime = (chessClockSettings.minutes * 60 + chessClockSettings.seconds) * 1000;
+        chessClockState.white.time = totalTime;
+        chessClockState.black.time = totalTime;
+        updateChessClockDisplay();
+    }
+
+    function updateChessClockDisplay() {
+        if (chessClockWhiteElement) {
+            const whiteTime = Math.ceil(chessClockState.white.time / 1000);
+            const whiteMinutes = Math.floor(whiteTime / 60);
+            const whiteSeconds = whiteTime % 60;
+            chessClockWhiteElement.textContent = `${whiteMinutes.toString().padStart(2, '0')}:${whiteSeconds.toString().padStart(2, '0')}`;
+            
+            // Add active/warning classes
+            if (chessClockState.white.active) {
+                chessClockWhiteElement.classList.add('active');
+            } else {
+                chessClockWhiteElement.classList.remove('active');
+            }
+            
+            if (whiteTime < 30) {
+                chessClockWhiteElement.classList.add('clock-warning');
+            } else {
+                chessClockWhiteElement.classList.remove('clock-warning');
+            }
+        }
+
+        if (chessClockBlackElement) {
+            const blackTime = Math.ceil(chessClockState.black.time / 1000);
+            const blackMinutes = Math.floor(blackTime / 60);
+            const blackSeconds = blackTime % 60;
+            chessClockBlackElement.textContent = `${blackMinutes.toString().padStart(2, '0')}:${blackSeconds.toString().padStart(2, '0')}`;
+            
+            // Add active/warning classes
+            if (chessClockState.black.active) {
+                chessClockBlackElement.classList.add('active');
+            } else {
+                chessClockBlackElement.classList.remove('active');
+            }
+            
+            if (blackTime < 30) {
+                chessClockBlackElement.classList.add('clock-warning');
+            } else {
+                chessClockBlackElement.classList.remove('clock-warning');
+            }
+        }
+    }
+
+    function resetChessClock() {
+        stopChessClock();
+        const totalTime = (chessClockSettings.minutes * 60 + chessClockSettings.seconds) * 1000;
+        chessClockState.white.time = totalTime;
+        chessClockState.black.time = totalTime;
+        chessClockState.white.active = false;
+        chessClockState.black.active = false;
+        updateChessClockDisplay();
+    }
+
+    function switchActiveClock(color) {
+        if (!chessClockEnabled) {
+            return;
+        }
+        
+        // Add increment to previous player's clock
+        if (chessClockState.white.active && chessClockSettings.increment > 0) {
+            chessClockState.white.time += chessClockSettings.increment * 1000;
+        }
+        if (chessClockState.black.active && chessClockSettings.increment > 0) {
+            chessClockState.black.time += chessClockSettings.increment * 1000;
+        }
+
+        // Switch active clock
+        chessClockState.white.active = (color === 'white');
+        chessClockState.black.active = (color === 'black');
+        
+        updateChessClockDisplay();
+    }
+
 function startNewGame(mode) {
         if (mode === 'local') {
             clearOnlineSession();
@@ -1993,6 +2369,7 @@ function startNewGame(mode) {
             applyBoardOrientationForCurrentTurn();
             clearHistory();
             resetBoard();
+            resetChessClock();
             hideGameOverOverlay();
             updateTurnIndicator();
             return;
@@ -2068,6 +2445,9 @@ function startNewGame(mode) {
             clearTimeout(pendingFlipTimeoutId);
         }
         updateTurnIndicator();
+        
+        // Switch chess clock to next player
+        switchActiveClock(currentTurn);
         
         // In online multiplayer, don't flip the board - keep current player at bottom
         if (onlineSession && onlineSession.lobbyId && onlineSession.myColor !== 'both') {
@@ -2398,6 +2778,11 @@ function startNewGame(mode) {
 
     function replayToPosition(moveCount, animateLastMove = false, reverseAnimation = false) {
         const replayToken = beginReplaySequence();
+        
+        // Pause clock when entering history mode
+        if (moveCount < moveHistory.length) {
+            stopChessClock();
+        }
 
         // If going backwards and animating, we need to show the piece at its destination first,
         // then animate it back to its source
@@ -2695,6 +3080,13 @@ function startNewGame(mode) {
         currentHistoryIndex = -1;
         updateHistoryHighlight();
         isGameOver = checkForGameOverState();
+        
+        // Resume clock if enabled and game is not over
+        if (chessClockEnabled && !isGameOver && moveHistory.length > 0) {
+            // Restore active clock based on current turn
+            switchActiveClock(currentTurn);
+            startChessClock();
+        }
     }
 
 
@@ -3369,6 +3761,7 @@ function handlePageUnload(event) {
         applyBoardOrientationForCurrentTurn();
         clearHistory();
         resetBoard();
+        resetChessClock();
         hideGameOverOverlay();
 
 	        const lobbyId = generateLobbyId();
@@ -3459,6 +3852,7 @@ function handlePageUnload(event) {
         pendingPromotion = null;
         isGameOver = false;
         clearHistory();
+        resetChessClock();
         applyBoardOrientationForCurrentTurn();
         updateTurnIndicator();
     }
@@ -3880,4 +4274,7 @@ function handlePageUnload(event) {
             hideNewGameNotice();
         }
     }
+
+    // Initialize chess clock times at startup
+    initializeChessClockTimes();
 })();
