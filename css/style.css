@@ -249,6 +249,70 @@ body {
     transition: background-color 220ms ease, border-color 0.3s ease;
 }
 
+#board-wrap {
+    display: inline-flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.9rem;
+}
+
+.board-clock {
+    background: var(--bg-secondary);
+    border-radius: 16px;
+    border: 2px solid var(--border-color);
+    padding: 0.65rem 1rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    transition: background-color 0.3s ease, border-color 0.3s ease;
+}
+
+.board-clock[hidden] {
+    display: none;
+}
+
+#board-wrap .board-clock-black {
+    order: 1;
+}
+
+#board-wrap #board-container {
+    order: 2;
+}
+
+#board-wrap .board-clock-white {
+    order: 3;
+}
+
+#board-wrap.board-wrap-flipped .board-clock-white {
+    order: 1;
+}
+
+#board-wrap.board-wrap-flipped .board-clock-black {
+    order: 3;
+}
+
+.board-clock .player-clock-label {
+    margin: 0;
+}
+
+.board-clock .player-clock {
+    font-size: 1.35rem;
+    padding: 0.55rem 1rem;
+    min-width: 104px;
+    letter-spacing: 0.08em;
+}
+
+.clock-preset-select {
+    flex: 1.25;
+}
+
+.clock-settings-inline {
+    flex: 0 0 auto;
+    min-width: 2.75rem;
+    padding: 0.45rem 0.75rem;
+}
+
 .player-label {
     position: absolute;
     left: 50%;
