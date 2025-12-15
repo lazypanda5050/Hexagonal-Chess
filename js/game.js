@@ -76,21 +76,15 @@ let playerLabelsTimeoutId = null;
 	    let chessClockLastTickMs = null;
 	    let chessClockWhiteElement = null;
 		    let chessClockBlackElement = null;
-	    let boardClockWrapElement = null;
-	    let boardClockWhiteWrapElement = null;
-	    let boardClockBlackWrapElement = null;
 
 	    function updateClockVisibility() {
 	        const visible = !!chessClockEnabled;
-	        const clockContainers = [
-	            document.getElementById('board-clock-white'),
-	            document.getElementById('board-clock-black')
-	        ].filter(Boolean);
-	        clockContainers.forEach(container => {
-	            container.hidden = !visible;
+	        const clockContainer = document.getElementById('game-clock-container');
+	        if (clockContainer) {
+	            clockContainer.hidden = !visible;
 	            // Belt + suspenders: avoid any CSS overriding `[hidden]`.
-	            container.style.display = visible ? '' : 'none';
-	        });
+	            clockContainer.style.display = visible ? '' : 'none';
+	        }
 	        const clockToggle = document.getElementById('game-clock-toggle');
 	        if (clockToggle && typeof clockToggle.checked === 'boolean') {
 	            clockToggle.checked = !!chessClockEnabled;
@@ -110,13 +104,6 @@ let playerLabelsTimeoutId = null;
 	            return null;
 	        }
 	        return (chessClockSettings.minutes * 60 + chessClockSettings.seconds) * 1000;
-	    }
-
-	    function updateClockPlacement() {
-	        if (!boardClockWrapElement) {
-	            return;
-	        }
-	        boardClockWrapElement.classList.toggle('board-wrap-flipped', !!isBoardFlipped);
 	    }
 
     // History replay is animation + setTimeout heavy; rapid scrubbing can otherwise
@@ -297,29 +284,22 @@ let playerLabelsTimeoutId = null;
 	    const gameOverOverlay = buildGameOverOverlay();
 	    boardContainer.appendChild(gameOverOverlay);
 
-	    const boardWrap = document.createElement('div');
-	    boardWrap.id = 'board-wrap';
-	    boardClockBlackWrapElement = buildBoardPlayerClock('black');
-	    boardClockWhiteWrapElement = buildBoardPlayerClock('white');
-	    boardClockWrapElement = boardWrap;
-	    boardWrap.appendChild(boardClockBlackWrapElement);
-	    boardWrap.appendChild(boardContainer);
-	    boardWrap.appendChild(boardClockWhiteWrapElement);
-
 	    const layout = document.createElement('div');
 	    layout.id = 'game-layout';
 	    const controls = buildGameControls();
+	    const gameClock = buildGameClock();
 	    const historySidebar = buildHistorySidebar();
 	    const sidePanel = document.createElement('div');
 	    sidePanel.id = 'side-panel';
 	    sidePanel.appendChild(controls);
 	    // Turn indicator should appear between the control buttons and the move list.
 	    sidePanel.appendChild(turnIndicator);
+	    sidePanel.appendChild(gameClock);
 	    sidePanel.appendChild(historySidebar);
 	    const promotionModal = buildPromotionModal();
 	    const onlineGameModal = buildOnlineGameModal();
 	    const clockSettingsModal = buildClockSettingsModal();
-	    layout.appendChild(boardWrap);
+	    layout.appendChild(boardContainer);
 	    layout.appendChild(sidePanel);
 
     appRoot.appendChild(layout);
@@ -328,7 +308,6 @@ let playerLabelsTimeoutId = null;
 	    appRoot.appendChild(clockSettingsModal);
 
 	    updateClockVisibility();
-	    updateClockPlacement();
 	    updateChessClockDisplay();
 
 // Add keyboard event listener for history navigation (currently disabled).
@@ -1774,32 +1753,50 @@ let playerLabelsTimeoutId = null;
         return placements;
     }
 
-		    function buildBoardPlayerClock(color) {
-		        const container = document.createElement('div');
-		        container.className = `board-clock board-clock-${color}`;
-		        container.id = `board-clock-${color}`;
-		        container.hidden = !chessClockEnabled;
-		        container.style.display = chessClockEnabled ? '' : 'none';
+		    function buildGameClock() {
+		        const clockContainer = document.createElement('div');
+		        clockContainer.id = 'game-clock-container';
+		        clockContainer.className = 'game-clock-container';
+		        clockContainer.hidden = !chessClockEnabled;
+		        clockContainer.style.display = chessClockEnabled ? '' : 'none';
 
-	        const label = document.createElement('div');
-	        label.className = 'player-clock-label';
-	        label.textContent = color === 'white' ? 'White' : 'Black';
+	        const whiteClockContainer = document.createElement('div');
+	        whiteClockContainer.className = 'player-clock-container';
 
-	        const clock = document.createElement('div');
-	        clock.id = `chess-clock-${color}`;
-	        clock.className = `player-clock player-clock-${color}`;
-	        clock.textContent = '00:00';
+	        const whiteLabel = document.createElement('div');
+	        whiteLabel.className = 'player-clock-label';
+	        whiteLabel.textContent = 'White';
 
-	        container.appendChild(label);
-	        container.appendChild(clock);
+	        const whiteClock = document.createElement('div');
+	        whiteClock.id = 'chess-clock-white';
+	        whiteClock.className = 'player-clock player-clock-white';
+	        whiteClock.textContent = '00:00';
 
-	        if (color === 'white') {
-	            chessClockWhiteElement = clock;
-	        } else {
-	            chessClockBlackElement = clock;
-	        }
+	        whiteClockContainer.appendChild(whiteLabel);
+	        whiteClockContainer.appendChild(whiteClock);
 
-	        return container;
+	        const blackClockContainer = document.createElement('div');
+	        blackClockContainer.className = 'player-clock-container';
+
+	        const blackLabel = document.createElement('div');
+	        blackLabel.className = 'player-clock-label';
+	        blackLabel.textContent = 'Black';
+
+	        const blackClock = document.createElement('div');
+	        blackClock.id = 'chess-clock-black';
+	        blackClock.className = 'player-clock player-clock-black';
+	        blackClock.textContent = '00:00';
+
+	        blackClockContainer.appendChild(blackLabel);
+	        blackClockContainer.appendChild(blackClock);
+
+	        clockContainer.appendChild(whiteClockContainer);
+	        clockContainer.appendChild(blackClockContainer);
+
+	        chessClockWhiteElement = whiteClock;
+	        chessClockBlackElement = blackClock;
+
+	        return clockContainer;
 	    }
 
 	    function buildGameControls() {
@@ -2591,19 +2588,18 @@ let playerLabelsTimeoutId = null;
         }
     }
 
-		    function resetChessClock() {
-		        stopChessClock();
-		        const totalTime = getInitialClockTimeMs();
-		        chessClockState.white.time = totalTime;
-		        chessClockState.black.time = totalTime;
-		        chessClockState.white.active = false;
-		        chessClockState.black.active = false;
-		        updateClockVisibility();
-		        updateClockPlacement();
-		        updateClockPresetSelect();
-		        
-		        updateChessClockDisplay();
-		    }
+	    function resetChessClock() {
+	        stopChessClock();
+	        const totalTime = getInitialClockTimeMs();
+	        chessClockState.white.time = totalTime;
+	        chessClockState.black.time = totalTime;
+	        chessClockState.white.active = false;
+	        chessClockState.black.active = false;
+	        updateClockVisibility();
+	        updateClockPresetSelect();
+	        
+	        updateChessClockDisplay();
+	    }
 
     function switchActiveClock(color) {
         if (!chessClockEnabled) {
@@ -2680,7 +2676,6 @@ function startNewGame(mode) {
 	        isBoardFlipped = !isBoardFlipped;
 	        boardContainer.classList.toggle('board-flipped', isBoardFlipped);
 	        updateOnlinePlayerLabels();
-	        updateClockPlacement();
 	    }
 
 		    function applyBoardOrientationForCurrentTurn() {
@@ -2696,7 +2691,6 @@ function startNewGame(mode) {
 			                    isBoardFlipped = shouldBeFlipped;
 			                    boardContainer.classList.toggle('board-flipped', isBoardFlipped);
 			                    updateOnlinePlayerLabels();
-			                    updateClockPlacement();
 			                }
 			                return;
 			            }
@@ -2714,7 +2708,6 @@ function startNewGame(mode) {
 		        isBoardFlipped = shouldBeFlipped;
 		        boardContainer.classList.toggle('board-flipped', isBoardFlipped);
 		        updateOnlinePlayerLabels();
-		        updateClockPlacement();
 		    }
 
     function endTurn(piece) {
