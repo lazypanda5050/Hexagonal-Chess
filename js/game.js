@@ -2714,10 +2714,19 @@ function startNewGame(mode) {
 
     function jumpToMove(moveIndex) {
         if (moveIndex < 0 || moveIndex >= moveHistory.length) return;
-        
-        currentHistoryIndex = moveIndex;
+
+        // History cursor behaves like Lichess: live is "after the last ply", and
+        // history positions are represented by a ply count (0..moveHistory.length - 1).
+        // Clicking the last move returns to live.
+        const targetPly = moveIndex + 1;
+        if (targetPly >= moveHistory.length) {
+            exitHistoryMode();
+            return;
+        }
+
+        currentHistoryIndex = targetPly;
         // No animations in history mode (prevents jank when scrubbing quickly).
-        replayToPosition(moveIndex + 1, false);
+        replayToPosition(currentHistoryIndex, false);
         isGameOver = false;
         updateHistoryHighlight();
     }
@@ -2746,61 +2755,68 @@ function startNewGame(mode) {
 
         if (event.key === 'ArrowLeft') {
             event.preventDefault();
-            // If not in history mode, enter history mode and go back one move
+            if (moveHistory.length === 0) {
+                return;
+            }
+
+            // Lichess semantics:
+            // - Live is outside history mode (currentHistoryIndex === -1).
+            // - History cursor is a ply count: 0 = start position, N = live (stored as -1).
+            // - ArrowLeft goes to previous ply; ArrowRight goes to next ply; reaching live exits.
             if (currentHistoryIndex === -1) {
-                // Enter history mode by going to the previous move
-                if (moveHistory.length > 0) {
-                    currentHistoryIndex = moveHistory.length - 1;
-                    // No animations in history mode.
-                    replayToPosition(currentHistoryIndex + 1, false);
-                    isGameOver = false;
-                    updateHistoryHighlight();
-                }
+                currentHistoryIndex = moveHistory.length - 1;
+                replayToPosition(currentHistoryIndex, false);
+                isGameOver = false;
+                updateHistoryHighlight();
             } else {
-                // Already in history mode, go back another move
                 navigateHistory(-1);
             }
         } else if (event.key === 'ArrowRight') {
-            event.preventDefault();
-            // If we're at the last entry in history mode, exit history mode
-            if (currentHistoryIndex === moveHistory.length - 1) {
-                currentHistoryIndex = -1;
-                replayToPosition(moveHistory.length);
-                isGameOver = checkForGameOverState();
-                updateHistoryHighlight();
-            } else {
-                navigateHistory(1);
+            // Do not enter history mode from live.
+            if (currentHistoryIndex === -1) {
+                return;
             }
+            event.preventDefault();
+            navigateHistory(1);
+        } else if (event.key === 'ArrowUp') {
+            if (moveHistory.length === 0) {
+                return;
+            }
+            event.preventDefault();
+
+            // Jump to start position (ply 0) and enter history mode if needed.
+            currentHistoryIndex = 0;
+            replayToPosition(0, false);
+            isGameOver = false;
+            updateHistoryHighlight();
+        } else if (event.key === 'ArrowDown') {
+            event.preventDefault();
+
+            // Jump to live (last ply) and exit history mode if currently browsing.
+            exitHistoryMode();
         }
     }
 
     function navigateHistory(direction) {
         if (moveHistory.length === 0) return;
-        const newIndex = currentHistoryIndex + direction;
-        
-        // Clamp to valid range: -1 (latest) to moveHistory.length - 1 (first move)
-        const clampedIndex = Math.max(-1, Math.min(moveHistory.length - 1, newIndex));
-        
-        if (clampedIndex === currentHistoryIndex) {
-            return; // No change needed
+        if (currentHistoryIndex === -1) return;
+
+        const nextPly = currentHistoryIndex + direction;
+
+        // Reaching/passing the last ply exits history mode.
+        if (nextPly >= moveHistory.length) {
+            exitHistoryMode();
+            return;
         }
-        
-        currentHistoryIndex = clampedIndex;
-        
-        if (currentHistoryIndex === -1) {
-            // Show the latest position - replay all moves
-            // No animations in history mode.
-            replayToPosition(moveHistory.length, false);
-            // Restore actual game state
-            isGameOver = checkForGameOverState();
-        } else {
-            // Show position up to currentHistoryIndex
-            // No animations in history mode.
-            replayToPosition(currentHistoryIndex + 1, false);
-            // When viewing history, we're not in a game over state
-            isGameOver = false;
+
+        const clampedPly = Math.max(0, nextPly);
+        if (clampedPly === currentHistoryIndex) {
+            return;
         }
-        
+
+        currentHistoryIndex = clampedPly;
+        replayToPosition(currentHistoryIndex, false);
+        isGameOver = false;
         updateHistoryHighlight();
     }
 
@@ -3112,11 +3128,13 @@ function startNewGame(mode) {
             exitButton.style.display = currentHistoryIndex >= 0 ? 'block' : 'none';
         }
         
-        // Add highlight to current position
+        // Add highlight to current position.
+        // currentHistoryIndex is a ply count, so the "current move" is ply - 1.
         if (currentHistoryIndex >= 0) {
             const moveElements = movesList.querySelectorAll('.move-notation');
-            if (moveElements[currentHistoryIndex]) {
-                moveElements[currentHistoryIndex].classList.add('history-current');
+            const moveIndex = currentHistoryIndex - 1;
+            if (moveIndex >= 0 && moveElements[moveIndex]) {
+                moveElements[moveIndex].classList.add('history-current');
             }
         }
     }
