@@ -1,7 +1,7 @@
 # Hexagonal Chess
 
 > [!WARNING]
-> This is still a work in progress. we will remove this meassage when we are done.
+> This is still a work in progress. we will remove this message when we are done.
 
 A fully functional hexagonal chess web app built with pure JavaScript, featuring real-time multiplayer capabilities and bookmarklet support.
 
