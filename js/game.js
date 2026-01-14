@@ -1662,9 +1662,13 @@ let playerLabelsTimeoutId = null;
             const rankStr = notation.slice(1);
             
             const q = fileChar.codePointAt(0) - 65 - 5;
-            const r = 6 - Number.parseInt(rankStr, 10);
+            const rank = Number.parseInt(rankStr, 10);
+            const r = 6 - rank;
             
             if (Number.isNaN(q) || Number.isNaN(r)) return null;
+            
+            // Validate rank is within valid range (1-11)
+            if (rank < 1 || rank > 11) return null;
 
             // Validate coordinates are within board bounds
             const s = -q - r;
@@ -2619,10 +2623,10 @@ let playerLabelsTimeoutId = null;
         chessClockLastTickMs = Date.now();
         
         // Add increment to previous player's clock
-        if (chessClockState.white.active && chessClockSettings.increment > 0 && typeof chessClockState.white.time === 'number') {
+        if (chessClockState.white.active && chessClockSettings.increment > 0 && typeof chessClockState.white.time === 'number' && chessClockState.white.time > 0) {
             chessClockState.white.time += chessClockSettings.increment * 1000;
         }
-        if (chessClockState.black.active && chessClockSettings.increment > 0 && typeof chessClockState.black.time === 'number') {
+        if (chessClockState.black.active && chessClockSettings.increment > 0 && typeof chessClockState.black.time === 'number' && chessClockState.black.time > 0) {
             chessClockState.black.time += chessClockSettings.increment * 1000;
         }
 
@@ -4254,12 +4258,12 @@ function handlePageUnload(event) {
 					                    .then(() => {
 					                        didWriteGuest = true;
 					                    });
-					                const rolesWrite = rolesRef.transaction(currentRoles => {
-					                    if (currentRoles && currentRoles.whiteUid && currentRoles.blackUid) {
-					                        return; // abort
-					                    }
-					                    if (!hostUid) {
-					                        return; // abort
+		                const rolesWrite = rolesRef.transaction(currentRoles => {
+		                    if (currentRoles && currentRoles.whiteUid && currentRoles.blackUid) {
+		                        return currentRoles; // abort - explicitly return current value
+		                    }
+		                    if (!hostUid) {
+		                        return currentRoles; // abort - explicitly return current value
 				                    }
 				                    const hostIsWhite = Math.random() >= 0.5;
 				                    return {
