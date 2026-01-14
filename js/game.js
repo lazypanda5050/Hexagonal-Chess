@@ -73,6 +73,30 @@ let playerLabelsTimeoutId = null;
         white: { time: 0, active: false }, // time in milliseconds (number) or null for infinite
         black: { time: 0, active: false }
     };
+
+    const CLOCK_STORAGE_KEY = 'hexChess_clockState';
+
+    function saveClockState() {
+        try {
+            localStorage.setItem(CLOCK_STORAGE_KEY, JSON.stringify(chessClockState));
+        } catch (e) {
+            console.warn('Failed to save clock state:', e);
+        }
+    }
+
+    function loadClockState() {
+        try {
+            const saved = localStorage.getItem(CLOCK_STORAGE_KEY);
+            if (saved) {
+                const parsed = JSON.parse(saved);
+                if (parsed && typeof parsed === 'object') {
+                    chessClockState = parsed;
+                }
+            }
+        } catch (e) {
+            console.warn('Failed to load clock state:', e);
+        }
+    }
 	    let chessClockIntervalId = null;
 	    let chessClockLastTickMs = null;
 	    let chessClockWhiteElement = null;
@@ -306,10 +330,11 @@ let playerLabelsTimeoutId = null;
     appRoot.appendChild(layout);
 	    appRoot.appendChild(promotionModal);
 	    appRoot.appendChild(onlineGameModal);
-	    appRoot.appendChild(clockSettingsModal);
+    appRoot.appendChild(clockSettingsModal);
 
-	    updateClockVisibility();
-	    updateChessClockDisplay();
+    loadClockState();
+    updateClockVisibility();
+    updateChessClockDisplay();
 
 // Add keyboard event listener for history navigation (currently disabled).
     if (HISTORY_MODE_ENABLED) {
@@ -2623,17 +2648,18 @@ let playerLabelsTimeoutId = null;
     }
 
 	    function resetChessClock() {
-	        stopChessClock();
-	        const totalTime = getInitialClockTimeMs();
-	        chessClockState.white.time = totalTime;
-	        chessClockState.black.time = totalTime;
-	        chessClockState.white.active = false;
-	        chessClockState.black.active = false;
-	        updateClockVisibility();
-	        updateClockPresetSelect();
-	        
-	        updateChessClockDisplay();
-	    }
+        stopChessClock();
+        const totalTime = getInitialClockTimeMs();
+        chessClockState.white.time = totalTime;
+        chessClockState.black.time = totalTime;
+        chessClockState.white.active = false;
+        chessClockState.black.active = false;
+        updateClockVisibility();
+        updateClockPresetSelect();
+        saveClockState();
+        
+        updateChessClockDisplay();
+    }
 
     function switchActiveClock(color) {
         if (!chessClockEnabled) {
@@ -2758,6 +2784,7 @@ function startNewGame(mode) {
         
         // Switch chess clock to next player
         switchActiveClock(currentTurn);
+        saveClockState();
         
         // In online multiplayer, don't flip the board - keep current player at bottom
         if (onlineSession && onlineSession.lobbyId && onlineSession.myColor !== 'both') {
