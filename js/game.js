@@ -2,6 +2,7 @@
     const BOARD_RADIUS = 5; // Creates 91 tiles for Gliński's board
     const SQRT3 = Math.sqrt(3);
     const BOARD_FLIP_DELAY = 676; // Delay for board flip animation in milliseconds
+    const PLAYER_LABELS_TIMEOUT_MS = 3000; // Delay to hide player labels after showing them
     const HISTORY_MODE_ENABLED = true;
 
     const appRoot = document.getElementById('app');
@@ -730,9 +731,7 @@ let playerLabelsTimeoutId = null;
         directions.forEach(dir => {
             let q = piece.q + dir.q;
             let r = piece.r + dir.r;
-            let steps = 0;
             while (tilePositions.has(coordKey(q, r))) {
-                steps++;
                 const key = coordKey(q, r);
                 const occupantId = boardOccupancy.get(key);
                 if (!occupantId) {
@@ -747,7 +746,6 @@ let playerLabelsTimeoutId = null;
                 q += dir.q;
                 r += dir.r;
             }
-            console.log(`Queen at (${piece.q},${piece.r}): direction ${JSON.stringify(dir)} - ${steps} steps`);
         });
 
         console.log(`Total moves for queen: ${moves.length}`);
@@ -3137,7 +3135,9 @@ function startNewGame(mode) {
                     }
                     
                     const fromKey = coordKey(piece.q, piece.r);
-                    boardOccupancy.delete(fromKey);
+                    if (boardOccupancy.has(fromKey)) {
+                        boardOccupancy.delete(fromKey);
+                    }
                     
                     piece.q = move.toQ;
                     piece.r = move.toR;
