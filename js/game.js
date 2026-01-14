@@ -3951,7 +3951,7 @@ function handlePageUnload(event) {
 		        if (record.color !== 'white' && record.color !== 'black') {
 		            return false;
 		        }
-
+		 
 		        const expectedUid = expectedUidForColor(record.color);
 		        if (!expectedUid || record.byUid !== expectedUid) {
 		            return false;
@@ -3959,7 +3959,7 @@ function handlePageUnload(event) {
 		        if (record.color !== currentTurn) {
 		            return false;
 		        }
-
+		 
 		        const fromQ = record?.from?.q;
 		        const fromR = record?.from?.r;
 		        const toQ = record?.to?.q;
@@ -3967,8 +3967,11 @@ function handlePageUnload(event) {
 		        if (![fromQ, fromR, toQ, toR].every(Number.isFinite)) {
 		            return false;
 		        }
-
+		 
 		        const pieceId = typeof record.pieceId === 'string' ? record.pieceId : '';
+		        if (!pieceId) {
+		            return false;
+		        }
 		        const piece = piecesById.get(pieceId);
 		        if (!piece || piece.isCaptured) {
 		            return false;
@@ -3979,7 +3982,13 @@ function handlePageUnload(event) {
 		        if (piece.q !== fromQ || piece.r !== fromR) {
 		            return false;
 		        }
-
+		 
+		        // Validate promotion type if present
+		        if (record.promotionType && 
+		            !['queen', 'rook', 'bishop', 'knight'].includes(record.promotionType)) {
+		            return false;
+		        }
+		 
 		        // Exit history mode when receiving a move.
 		        if (currentHistoryIndex !== -1) {
 		            replayToPosition(moveHistory.length);
@@ -3987,13 +3996,13 @@ function handlePageUnload(event) {
 		            updateHistoryHighlight();
 		            isGameOver = checkForGameOverState();
 		        }
-
+		 
 		        const legalMoves = getLegalMovesForPiece(piece);
 		        const candidate = legalMoves.find(move => move.q === toQ && move.r === toR);
 		        if (!candidate) {
 		            return false;
 		        }
-
+		 
 		        const recordCaptureId = typeof record.captureId === 'string' ? record.captureId : null;
 		        if (!!candidate.captureId !== !!recordCaptureId) {
 		            return false;
@@ -4001,7 +4010,7 @@ function handlePageUnload(event) {
 		        if (recordCaptureId && candidate.captureId !== recordCaptureId) {
 		            return false;
 		        }
-
+		 
 		        const recordCastle = record.castle ?? null;
 		        if (recordCastle) {
 		            if (
