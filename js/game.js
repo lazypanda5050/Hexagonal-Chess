@@ -4389,18 +4389,28 @@ function handlePageUnload(event) {
 				                    hideOnlineGameModal();
 				                }, 650);
 				            })
-					            .catch(error => {
-					                console.error('Failed to join lobby:', error);
-					                if (didClaimLobby && !didWriteGuest) {
-					                    statusRef.set('waiting').catch(() => {});
-					                }
-					                clearOnlineSession();
-					                setOnlineModalState({
-					                    description: error.message || 'Failed to join lobby.',
-				                    lobbyId: '',
-				                    canCopy: false
-				                });
-				            });
+            .catch(error => {
+                console.error('Failed to join lobby:', error);
+                let errorMessage = 'Failed to join lobby. Please try again.';
+                if (error?.message) {
+                    if (error.message.includes('Lobby not found')) {
+                        errorMessage = 'Lobby not found. Please check the ID and try again.';
+                    } else if (error.message.includes('already taken')) {
+                        errorMessage = 'Lobby is full or already in use.';
+                    } else if (error.message.includes('network')) {
+                        errorMessage = 'Network error. Please check your connection.';
+                    }
+                }
+                if (didClaimLobby && !didWriteGuest) {
+                    statusRef.set('waiting').catch(() => {});
+                }
+                clearOnlineSession();
+                setOnlineModalState({
+                    description: errorMessage,
+                    lobbyId: '',
+                    canCopy: false
+                });
+            });
 				    }
 
 		    function cancelOnlineLobby() {
