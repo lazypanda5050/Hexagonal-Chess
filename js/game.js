@@ -1273,8 +1273,33 @@ let playerLabelsTimeoutId = null;
             showPromotionModal(piece.color);
             return;
         }
-
-        completeMove(piece, fromQ, fromR, move, isCapture, null, move.captureId ?? null);
+        
+        const { piece, fromQ, fromR, toQ, toR, isCapture, captureId, castle } = pendingPromotion; 
+        
+        // Validate online session state (turn already validated when promotion modal was shown)
+        if (onlineSession?.lobbyId) {
+            if (!canMakeOnlineMoveNow()) {
+                hidePromotionModal();
+                pendingPromotion = null;
+                showNewGameNotice('Waiting for opponent...');
+                return;
+            }
+            if (
+                (onlineSession?.myColor === 'white' || onlineSession?.myColor === 'black') &&
+                piece?.color &&
+                piece.color !== onlineSession.myColor
+            ) {
+                hidePromotionModal();
+                pendingPromotion = null;
+                return;
+            }
+        }
+        
+        hidePromotionModal();
+        
+        completeMove(piece, fromQ, fromR, { q: toQ, r: toR, castle: castle }, isCapture, promotionType, captureId ?? null);
+        
+        pendingPromotion = null;
     }
 
     function completeMove(piece, fromQ, fromR, move, isCapture, promotionType = null, captureId = null) {
