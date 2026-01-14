@@ -3717,6 +3717,9 @@ function handlePageUnload(event) {
 		        activeLobbyId = lobbyId;
 		        activeLobbyRef = firebaseDatabaseInstance.ref(`lobbies/${lobbyId}`);
 		        activeLobbyValueListener = snapshot => {
+		            if (activeLobbyId !== lobbyId) {
+		                return;
+		            }
 		            const lobby = snapshot.val();
 		            if (!lobby) {
 		                setOnlineModalAction('close');
@@ -3729,7 +3732,7 @@ function handlePageUnload(event) {
 		                return;
 		            }
 
-			            const derived = deriveRolesForUser(lobby, authenticatedUser, lobbyId);
+		            const derived = deriveRolesForUser(lobby, authenticatedUser, lobbyId);
 		            if (derived) {
 		                const hasAppliedInitialOrientation = !!onlineSession?.hasAppliedInitialOrientation;
 		                if (!hasAppliedInitialOrientation) {
@@ -3817,6 +3820,9 @@ function handlePageUnload(event) {
 		        }
 		        activeLastMoveRef = firebaseDatabaseInstance.ref(`lobbies/${lobbyId}/lastMove`);
 		        activeLastMoveValueListener = snapshot => {
+		            if (activeLobbyId !== lobbyId) {
+		                return;
+		            }
 		            const record = snapshot.val();
 		            if (!record || typeof record.ply !== 'number') {
 		                return;
