@@ -516,7 +516,14 @@ let playerLabelsTimeoutId = null;
             replayToPosition(moveHistory.length);
             currentHistoryIndex = -1;
             updateHistoryHighlight();
-            isGameOver = checkForGameOverState();
+            // Delay game over check to ensure replay animation completes
+            if (pendingReplayTimeoutIds.length === 0 && pendingReplayRafIds.length === 0) {
+                isGameOver = checkForGameOverState();
+            } else {
+                window.setTimeout(() => {
+                    isGameOver = checkForGameOverState();
+                }, 650);
+            }
         }
         const move = availableMoves.find(
             entry =>
