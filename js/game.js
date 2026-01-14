@@ -3141,24 +3141,88 @@ function startNewGame(mode) {
             stopChessClock();
         }
 
+        const MAX_REPLAY_ITERATIONS = 1000; // Prevent infinite loops
+        let iterations = 0;
+        
         // If going backwards and animating, we need to show the piece at its destination first,
         // then animate it back to its source
         if (animateLastMove && reverseAnimation && moveCount > 0) {
             const moveToAnimate = moveHistory[moveCount - 1];
-            if (moveToAnimate) {
-                // First, set up the board at the target position (moveCount)
-                initEmptyBoard();
-                const freshPieces = createInitialPieces();
-                placePieces(freshPieces);
-                currentTurn = 'white';
-                clearLastMoveHighlight();
-                clearSelection();
+            if (!moveToAnimate) {
+                return;
+            }
+            // First, set up the board at the target position (moveCount)
+            initEmptyBoard();
+            const freshPieces = createInitialPieces();
+            placePieces(freshPieces);
+            currentTurn = 'white';
+            clearLastMoveHighlight();
+            clearSelection();
+            
+            // Replay all moves up to moveCount WITHOUT animation
+            for (let i = 0; i < moveCount && i < MAX_REPLAY_ITERATIONS; i++) {
+                const move = moveHistory[i];
+                const pieceId = move.piece.id;
+                const piece = piecesById.get(pieceId);
                 
-                // Replay all moves up to moveCount WITHOUT animation
-                for (let i = 0; i < moveCount && i < moveHistory.length; i++) {
-                    const move = moveHistory[i];
-                    const pieceId = move.piece.id;
-                    const piece = piecesById.get(pieceId);
+                if (!piece) continue;
+                
+                if (move.isCapture && move.capturedPieceId) {
+                    const capturedPiece = piecesById.get(move.capturedPieceId);
+                    if (capturedPiece) {
+                        const capturedKey = coordKey(capturedPiece.q, capturedPiece.r);
+                        boardOccupancy.delete(capturedKey);
+                        capturedPiece.isCaptured = true;
+                        if (capturedPiece.element?.parentNode) {
+                            capturedPiece.element.parentNode.removeChild(capturedPiece.element);
+                        }
+                    }
+                }
+                
+                if (move.castle) {
+                    const rook = piecesById.get(move.castle.rookId ?? '');
+                    if (rook && !rook.isCaptured) {
+                        const rookFromKey = coordKey(rook.q, rook.r);
+                        boardOccupancy.delete(rookFromKey);
+                        rook.q = move.castle.rookToQ;
+                        rook.r = move.castle.rookToR;
+                        rook.hasMoved = true;
+                        const rookDestinationKey = coordKey(rook.q, rook.r);
+                        boardOccupancy.set(rookDestinationKey, rook.id);
+                        updatePiecePosition(rook, false);
+                    }
+                }
+                
+                if (move.promotionType) {
+                    piece.type = move.promotionType;
+                    piece.element.src = PIECE_SPRITES[piece.color][move.promotionType];
+                    piece.element.alt = `${piece.color} ${move.promotionType}`;
+                }
+                
+                const fromKey = coordKey(piece.q, piece.r);
+                if (boardOccupancy.has(fromKey)) {
+                    boardOccupancy.delete(fromKey);
+                }
+                
+                piece.q = move.toQ;
+                piece.r = move.toR;
+                piece.hasMoved = true;
+                
+                const destinationKey = coordKey(piece.q, piece.r);
+                boardOccupancy.set(destinationKey, piece.id);
+                updatePiecePosition(piece, false);
+                
+                currentTurn = move.color === 'white' ? 'black' : 'white';
+            }
+            
+            if (iterations >= MAX_REPLAY_ITERATIONS) {
+                console.warn('Replay iteration limit reached, possible infinite loop');
+                break;
+            }
+            
+            // Now animate the last move in reverse
+            const pieceId = moveToAnimate.piece.id;
+            const piece = piecesById.get(pieceId);
                     
                     if (!piece) continue;
                     
