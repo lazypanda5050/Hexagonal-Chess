@@ -2665,10 +2665,15 @@ function startNewGame(mode) {
 	            hideNewGameNotice();
 	            clearOnlineSession();
 	            const lobbyId = window.prompt('Enter Lobby ID to join:');
-	            if (!lobbyId) {
-	                return;
-	            }
-	            joinOnlineLobby(lobbyId.trim().toUpperCase());
+	        if (!lobbyId) {
+	            return;
+	        }
+	        const sanitizedLobbyId = lobbyId.trim().toUpperCase().replace(/[^A-Z0-9-]/g, '');
+	        if (sanitizedLobbyId.length === 0) {
+	            showNewGameNotice('Invalid Lobby ID. Please try again.');
+	            return;
+	        }
+	        joinOnlineLobby(sanitizedLobbyId);
 	        }
 	    }
 
