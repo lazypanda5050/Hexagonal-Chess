@@ -1870,20 +1870,23 @@ let playerLabelsTimeoutId = null;
         newGameButton.id = 'new-game-button';
         newGameButton.className = 'control-button';
         newGameButton.textContent = 'New Game';
+        newGameButton.setAttribute('aria-label', 'Start a new game');
         newGameButton.addEventListener('click', handleNewGameClick);
-
+ 
         const flipButton = document.createElement('button');
         flipButton.type = 'button';
         flipButton.id = 'flip-board-button';
         flipButton.className = 'control-button';
         flipButton.textContent = 'Flip Board';
+        flipButton.setAttribute('aria-label', 'Flip the board orientation');
         flipButton.addEventListener('click', handleFlipBoardClick);
-
+ 
         const darkModeButton = document.createElement('button');
         darkModeButton.type = 'button';
         darkModeButton.id = 'dark-mode-button';
         darkModeButton.className = 'control-button';
         darkModeButton.textContent = '🌙';
+        darkModeButton.setAttribute('aria-label', 'Toggle dark mode');
         darkModeButton.title = 'Toggle dark mode';
         darkModeButton.addEventListener('click', handleDarkModeToggle);
 
@@ -2034,6 +2037,7 @@ let playerLabelsTimeoutId = null;
         exitHistoryButton.id = 'exit-history-button';
         exitHistoryButton.className = 'control-button exit-history-button';
         exitHistoryButton.textContent = 'EXIT HISTORY MODE';
+        exitHistoryButton.setAttribute('aria-label', 'Exit history mode');
         exitHistoryButton.style.display = 'none';
         exitHistoryButton.addEventListener('click', exitHistoryMode);
 
