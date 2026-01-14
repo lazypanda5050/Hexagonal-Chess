@@ -3869,7 +3869,12 @@ function handlePageUnload(event) {
 		        }
 		    }
 
+		    let isApplyingPendingMoves = false;
+
 		    function tryApplyPendingOnlineMoves() {
+		        if (isApplyingPendingMoves) {
+		            return;
+		        }
 		        if (!onlineSession?.lobbyId) {
 		            return;
 		        }
@@ -3877,15 +3882,20 @@ function handlePageUnload(event) {
 		            return;
 		        }
 
-		        while (pendingOnlineMovesByPly.has(moveHistory.length)) {
-		            const record = pendingOnlineMovesByPly.get(moveHistory.length);
-		            pendingOnlineMovesByPly.delete(moveHistory.length);
-		            const applied = applyOnlineMoveRecord(record);
-		            if (!applied) {
-		                // If something looks wrong, stop applying further moves.
-		                pendingOnlineMovesByPly.set(record.ply, record);
-		                break;
+		        isApplyingPendingMoves = true;
+		        try {
+		            while (pendingOnlineMovesByPly.has(moveHistory.length)) {
+		                const record = pendingOnlineMovesByPly.get(moveHistory.length);
+		                pendingOnlineMovesByPly.delete(moveHistory.length);
+		                const applied = applyOnlineMoveRecord(record);
+		                if (!applied) {
+		                    // If something looks wrong, stop applying further moves.
+		                    pendingOnlineMovesByPly.set(record.ply, record);
+		                    break;
+		                }
 		            }
+		        } finally {
+		            isApplyingPendingMoves = false;
 		        }
 		    }
 
@@ -4194,10 +4204,14 @@ function handlePageUnload(event) {
 				            })
 				            .then(result => {
 				                didClaimLobby = !!result?.committed;
-				                return lobbyRef.once('value').then(snapshot => ({
-				                    result,
-				                    lobby: snapshot?.val?.() ?? null
-				                }));
+				                return lobbyRef.once('value').then(snapshot => {
+				                    try {
+				                        const lobby = (typeof snapshot?.val === 'function') ? snapshot.val() : null;
+				                        return { result, lobby };
+				                    } catch (e) {
+				                        return { result, lobby: null };
+				                    }
+				                });
 				            })
 				            .then(({ result, lobby }) => {
 				                if (!lobby) {
