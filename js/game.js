@@ -447,7 +447,6 @@ let playerLabelsTimeoutId = null;
             tileElement.dataset.q = tile.q;
             tileElement.dataset.r = tile.r;
             tileElement.addEventListener('click', () => {
-                console.log('Tile clicked:', tile.q, tile.r, 'clock enabled:', chessClockEnabled);
                 handleTileClick(tile.q, tile.r);
             });
             tilePositions.set(coordKey(tile.q, tile.r), {
@@ -478,7 +477,6 @@ let playerLabelsTimeoutId = null;
             piece.element = pieceElement;
             pieceElement.dataset.pieceId = piece.id;
             pieceElement.addEventListener('click', (e) => {
-                console.log('Piece clicked:', piece.type, piece.color, 'clock enabled:', chessClockEnabled);
                 e.stopPropagation();
                 handleTileClick(piece.q, piece.r);
             });
@@ -525,7 +523,6 @@ let playerLabelsTimeoutId = null;
     }
 
     function handleTileClick(q, r) {
-        console.log('Tile clicked:', q, r, 'clock enabled:', chessClockEnabled);
         if (isGameOver) {
             return;
         }
@@ -773,7 +770,6 @@ let playerLabelsTimeoutId = null;
             }
         });
 
-        console.log(`Total moves for queen: ${moves.length}`);
         return moves;
     }
 
