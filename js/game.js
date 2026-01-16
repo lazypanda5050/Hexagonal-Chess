@@ -336,6 +336,10 @@ let playerLabelsTimeoutId = null;
     updateClockVisibility();
     updateChessClockDisplay();
 
+    if (chessClockEnabled && !chessClockIntervalId && (chessClockState.white.active || chessClockState.black.active) && !isInfiniteClock()) {
+        startChessClock();
+    }
+
 // Add keyboard event listener for history navigation (currently disabled).
     if (HISTORY_MODE_ENABLED) {
         document.addEventListener('keydown', handleKeyDown);
