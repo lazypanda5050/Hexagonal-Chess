@@ -783,7 +783,9 @@ body {
     background: var(--bg-secondary);
     border-radius: 8px;
     border: 1px dashed var(--border-color);
+    width: auto;
     min-width: 10ch;
+    max-width: 15ch;
     text-align: center;
     text-transform: uppercase;
     transition: color 0.3s ease, background-color 0.3s ease, border-color 0.3s ease;
