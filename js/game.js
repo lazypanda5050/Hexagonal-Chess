@@ -2140,7 +2140,7 @@ let playerLabelsTimeoutId = null;
         joinInput.type = 'text';
         joinInput.className = 'online-game-lobby-input';
         joinInput.id = 'online-game-lobby-input';
-        joinInput.placeholder = 'ENTER-CODE-HERE';
+        joinInput.placeholder = 'Enter Code';
         joinInput.maxLength = 20;
 
         joinInfo.appendChild(joinLabel);
