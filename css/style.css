@@ -718,7 +718,7 @@ body {
     display: none;
     align-items: center;
     justify-content: center;
-    z-index: 1100;
+    z-index: 1600;
 }
 
 .online-game-overlay {
