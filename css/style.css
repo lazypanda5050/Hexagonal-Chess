@@ -718,7 +718,7 @@ body {
     display: none;
     align-items: center;
     justify-content: center;
-    z-index: 1100;
+    z-index: 1600;
 }
 
 .online-game-overlay {
@@ -772,6 +772,35 @@ body {
     border: 1px dashed var(--border-color);
     min-width: 10ch;
     transition: color 0.3s ease, background-color 0.3s ease, border-color 0.3s ease;
+}
+
+.online-game-lobby-input {
+    font-size: 1.6rem;
+    font-weight: 800;
+    color: var(--text-primary);
+    letter-spacing: 0.12em;
+    padding: 0.25rem 0.5rem;
+    background: var(--bg-secondary);
+    border-radius: 8px;
+    border: 1px dashed var(--border-color);
+    width: auto;
+    min-width: 10ch;
+    max-width: 15ch;
+    text-align: center;
+    text-transform: uppercase;
+    transition: color 0.3s ease, background-color 0.3s ease, border-color 0.3s ease;
+}
+
+.online-game-lobby-input::placeholder {
+    text-transform: none;
+}
+
+.online-game-lobby-input:focus {
+    outline: none;
+    border-color: var(--button-bg);
+    border-style: solid;
+}
+    border-style: solid;
 }
 
 .online-game-copy {

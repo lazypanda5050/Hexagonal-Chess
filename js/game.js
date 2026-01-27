@@ -2096,6 +2096,7 @@ let playerLabelsTimeoutId = null;
 
         const lobbyInfo = document.createElement('div');
         lobbyInfo.className = 'online-game-lobby';
+        lobbyInfo.id = 'online-game-lobby-display';
 
         const lobbyLabel = document.createElement('div');
         lobbyLabel.className = 'online-game-lobby-label';
@@ -2126,6 +2127,25 @@ let playerLabelsTimeoutId = null;
         lobbyInfo.appendChild(lobbyId);
         lobbyInfo.appendChild(copyButton);
 
+        const joinInfo = document.createElement('div');
+        joinInfo.className = 'online-game-lobby';
+        joinInfo.id = 'online-game-join-input';
+        joinInfo.style.display = 'none';
+
+        const joinLabel = document.createElement('div');
+        joinLabel.className = 'online-game-lobby-label';
+        joinLabel.textContent = 'Enter Lobby ID';
+
+        const joinInput = document.createElement('input');
+        joinInput.type = 'text';
+        joinInput.className = 'online-game-lobby-input';
+        joinInput.id = 'online-game-lobby-input';
+        joinInput.placeholder = 'Enter Code';
+        joinInput.maxLength = 20;
+
+        joinInfo.appendChild(joinLabel);
+        joinInfo.appendChild(joinInput);
+
 	        const actionButton = document.createElement('button');
 	        actionButton.type = 'button';
 	        actionButton.className = 'online-game-close';
@@ -2146,6 +2166,7 @@ let playerLabelsTimeoutId = null;
 	        content.appendChild(title);
 	        content.appendChild(description);
 	        content.appendChild(lobbyInfo);
+	        content.appendChild(joinInfo);
 	        content.appendChild(actionButton);
 	        modal.appendChild(overlay);
 	        modal.appendChild(content);
@@ -2702,16 +2723,7 @@ function startNewGame(mode) {
 	            }
 	            hideNewGameNotice();
 	            clearOnlineSession();
-	            const lobbyId = window.prompt('Enter Lobby ID to join:');
-	        if (!lobbyId) {
-	            return;
-	        }
-	        const sanitizedLobbyId = lobbyId.trim().toUpperCase().replace(/[^A-Z0-9-]/g, '');
-	        if (sanitizedLobbyId.length === 0) {
-	            showNewGameNotice('Invalid Lobby ID. Please try again.');
-	            return;
-	        }
-	        joinOnlineLobby(sanitizedLobbyId);
+	            showJoinGameModal();
 	        }
 	    }
 
@@ -3469,6 +3481,50 @@ function startNewGame(mode) {
 	            return;
 	        }
 	        modal.style.display = 'none';
+	    }
+
+	    function showJoinGameModal() {
+	        const modal = document.getElementById('online-game-modal');
+	        if (!modal) {
+	            return;
+	        }
+	        
+	        // Set modal to join mode
+	        const title = modal.querySelector('.online-game-title');
+	        const description = document.getElementById('online-game-description');
+	        const lobbyDisplay = document.getElementById('online-game-lobby-display');
+	        const joinInput = document.getElementById('online-game-join-input');
+	        const actionButton = document.getElementById('online-game-action');
+	        const input = document.getElementById('online-game-lobby-input');
+	        
+	        if (title) title.textContent = 'Join Online Game';
+	        if (description) description.textContent = 'Enter the lobby ID to join a game.';
+	        if (lobbyDisplay) lobbyDisplay.style.display = 'none';
+	        if (joinInput) joinInput.style.display = 'grid';
+	        if (input) {
+	            input.value = '';
+	            input.focus();
+	        }
+	        if (actionButton) {
+	            actionButton.textContent = 'Join';
+	            actionButton.onclick = () => {
+	                const lobbyId = input?.value || '';
+	                if (!lobbyId) {
+	                    hideOnlineGameModal();
+	                    return;
+	                }
+	                const sanitizedLobbyId = lobbyId.trim().toUpperCase().replace(/[^A-Z0-9-]/g, '');
+	                if (sanitizedLobbyId.length === 0) {
+	                    hideOnlineGameModal();
+	                    showNewGameNotice('Invalid Lobby ID. Please try again.');
+	                    return;
+	                }
+	                hideOnlineGameModal();
+	                joinOnlineLobby(sanitizedLobbyId);
+	            };
+	        }
+	        
+	        modal.style.display = 'flex';
 	    }
 
 		    function normalizeLobbyStatus(status) {
