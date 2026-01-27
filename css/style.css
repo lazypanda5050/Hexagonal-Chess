@@ -791,9 +791,15 @@ body {
     transition: color 0.3s ease, background-color 0.3s ease, border-color 0.3s ease;
 }
 
+.online-game-lobby-input::placeholder {
+    text-transform: none;
+}
+
 .online-game-lobby-input:focus {
     outline: none;
     border-color: var(--button-bg);
+    border-style: solid;
+}
     border-style: solid;
 }
 
